@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# CDK
+cdk.out/
+context.json
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+
+# Env / secrets
+.env

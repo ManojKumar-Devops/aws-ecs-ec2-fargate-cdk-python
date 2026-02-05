@@ -1,3 +1,8 @@
 {
-  "app": "python3 app.py"
+  "app": "python3 app.py",
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": false,
+    "@aws-cdk/aws-ecr-assets:dockerIgnoreSupport": true
+  }
 }
+
