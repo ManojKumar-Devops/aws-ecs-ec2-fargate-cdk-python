@@ -39,7 +39,6 @@ if deploy_ecs:
         vpc=network.vpc,
         image_uri=image_uri,
         ecs_exec_role_arn=ecs_exec_role_arn,
-        ecs_instance_role_arn=ecs_instance_role_arn,
         env=env,
     )
 
