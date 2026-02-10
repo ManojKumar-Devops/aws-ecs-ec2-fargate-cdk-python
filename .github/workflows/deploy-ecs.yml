@@ -16,7 +16,7 @@ env:
 
 jobs:
   deploy-ecs:
-    if: ${{ github.event.inputs.confirm == 'DEPLOY_ECS' }}
+    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' && github.event.inputs.confirm == 'DEPLOY_ECS' }}
     runs-on: ubuntu-latest
 
     steps:
