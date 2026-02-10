@@ -2,7 +2,7 @@ name: Deploy ECS (Fargate + EC2-managed)
 
 on:
   push:
-    branches: [ "ECS" ]
+    branches: [ "ecs" ]
     paths:
       - "infra/**"
       - "app/**"
