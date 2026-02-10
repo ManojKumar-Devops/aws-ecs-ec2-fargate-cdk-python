@@ -1,0 +1,110 @@
+name: Deploy ECS (Fargate + EC2-managed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY_ECS to confirm deployment"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: hello-world-lab
+
+jobs:
+  deploy-ecs:
+    if: ${{ github.event.inputs.confirm == 'DEPLOY_ECS' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CDK + Python deps
+        run: |
+          npm install -g aws-cdk
+          python -m pip install --upgrade pip
+          pip install -r infra/requirements.txt
+
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK synth (ECS enabled)
+        working-directory: infra
+        run: |
+          rm -rf cdk.out
+          cdk synth -c deploy_ecs=true
+
+      - name: Deploy NetworkStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name NetworkStack \
+            --template-file cdk.out/NetworkStack.template.json
+
+      - name: Deploy EcrStack (creates hello-world-lab repo)
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcrStack \
+            --template-file cdk.out/EcrStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Login to Amazon ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region $AWS_REGION | \
+            docker login --username AWS --password-stdin \
+            ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+      - name: Build and push image to ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          cd app
+          docker build -t ${ECR_REPO}:latest .
+          docker tag ${ECR_REPO}:latest ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+          docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+
+      - name: Deploy ECS Fargate stack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcsFargateStack \
+            --template-file cdk.out/EcsFargateStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy ECS EC2-managed stack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcsEc2Stack \
+            --template-file cdk.out/EcsEc2Stack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Print ALB URLs
+        working-directory: infra
+        run: |
+          echo "=== ECS Fargate ==="
+          aws cloudformation describe-stacks \
+            --stack-name EcsFargateStack \
+            --query "Stacks[0].Outputs" \
+            --output table
+
+          echo "=== ECS EC2-managed ==="
+          aws cloudformation describe-stacks \
+            --stack-name EcsEc2Stack \
+            --query "Stacks[0].Outputs" \
+            --output table
