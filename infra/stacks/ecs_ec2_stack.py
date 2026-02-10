@@ -23,7 +23,7 @@ class EcsEc2Stack(Stack):
 
         cluster = ecs.Cluster(self, "Ec2Cluster", vpc=vpc)
 
-        # ECS EC2 instances in PUBLIC subnet (no NAT)
+        # ASG providing EC2 capacity for ECS
         asg = autoscaling.AutoScalingGroup(
             self, "EcsAsg",
             vpc=vpc,
@@ -42,25 +42,22 @@ class EcsEc2Stack(Stack):
         )
         cluster.add_asg_capacity_provider(cp)
 
-        # ---- IMPORTANT PART: EC2 task definition with memory set ----
+        # Task definition with required memory for EC2 launch type
         task_def = ecs.Ec2TaskDefinition(self, "TaskDef")
-
         container = task_def.add_container(
             "hello",
             image=ecs.ContainerImage.from_ecr_repository(repository, tag="latest"),
-            memory_limit_mib=256,   # ✅ required for EC2 tasks
+            memory_limit_mib=256,
             cpu=128,
         )
-        container.add_port_mappings(
-            ecs.PortMapping(container_port=8080)
-        )
+        container.add_port_mappings(ecs.PortMapping(container_port=8080))
 
         svc = ecs_patterns.ApplicationLoadBalancedEc2Service(
             self, "Ec2Hello",
             cluster=cluster,
             public_load_balancer=True,
             desired_count=1,
-            task_definition=task_def,   # ✅ use our task definition
+            task_definition=task_def,
         )
 
         svc.target_group.configure_health_check(
@@ -72,4 +69,4 @@ class EcsEc2Stack(Stack):
         scaling = svc.service.auto_scale_task_count(min_capacity=1, max_capacity=3)
         scaling.scale_on_cpu_utilization("CpuScaling", target_utilization_percent=50)
 
-        CfnOutput(self, "Ec2URL", value=f"http://{svc.load_balancer.load_balancer_dns_name}")
+        CfnOutput(self, "Ec2EcsAlbUrl", value=f"http://{svc.load_balancer.load_balancer_dns_name}")
