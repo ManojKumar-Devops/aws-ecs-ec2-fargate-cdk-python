@@ -13,14 +13,27 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPO: hello-world-lab
-  ALLOW_ECS_DEPLOY: ${{ secrets.ALLOW_ECS_DEPLOY }}
 
 jobs:
   deploy-ecs:
-    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' && github.event.inputs.confirm == 'DEPLOY_ECS' }}
     runs-on: ubuntu-latest
 
     steps:
+      - name: Guard (confirm + allow switch)
+        run: |
+          echo "confirm='${{ github.event.inputs.confirm }}'"
+          echo "ALLOW_ECS_DEPLOY='${{ vars.ALLOW_ECS_DEPLOY }}'"
+
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY_ECS" ]; then
+            echo "❌ Confirmation failed. Type DEPLOY_ECS exactly."
+            exit 1
+          fi
+
+          if [ "${{ vars.ALLOW_ECS_DEPLOY }}" != "true" ]; then
+            echo "❌ ECS deploy disabled. Create repo VARIABLE ALLOW_ECS_DEPLOY=true"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -43,27 +56,28 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: CDK synth (ECS enabled)
-        working-directory: infra
-        run: |
-          rm -rf cdk.out
-          cdk synth -c deploy_ecs=true
-
+      # 1) Deploy Network first
       - name: Deploy NetworkStack
         working-directory: infra
         run: |
+          rm -rf cdk.out
+          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
           aws cloudformation deploy \
             --stack-name NetworkStack \
             --template-file cdk.out/NetworkStack.template.json
 
+      # 2) Deploy ECR stack (repo must exist before push)
       - name: Deploy EcrStack (creates hello-world-lab repo)
         working-directory: infra
         run: |
+          rm -rf cdk.out
+          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
           aws cloudformation deploy \
             --stack-name EcrStack \
             --template-file cdk.out/EcrStack.template.json \
             --capabilities CAPABILITY_NAMED_IAM
 
+      # 3) Build + push image
       - name: Login to Amazon ECR
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -79,6 +93,34 @@ jobs:
           docker tag ${ECR_REPO}:latest ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
           docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
 
+      # 4) Set IMAGE + Role ARNs for CDK context
+      - name: Set IMAGE_URI env
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
+
+      - name: Set ECS role ARNs
+        run: |
+          echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
+          echo "ECS_INSTANCE_ROLE_ARN=${{ vars.ECS_INSTANCE_ROLE_ARN }}" >> $GITHUB_ENV
+
+      # 5) Now synth ECS templates (with all required context)
+      - name: CDK synth (ECS enabled)
+        working-directory: infra
+        run: |
+          echo "Using IMAGE_URI=$IMAGE_URI"
+          echo "Using ECS_EXEC_ROLE_ARN=$ECS_EXEC_ROLE_ARN"
+          echo "Using ECS_INSTANCE_ROLE_ARN=$ECS_INSTANCE_ROLE_ARN"
+
+          rm -rf cdk.out
+          cdk synth \
+            -c deploy_ec2_asg=false \
+            -c deploy_ecs=true \
+            -c image_uri=$IMAGE_URI \
+            -c ecs_exec_role_arn=$ECS_EXEC_ROLE_ARN \
+            -c ecs_instance_role_arn=$ECS_INSTANCE_ROLE_ARN
+
+      # 6) Deploy ECS stacks from synthesized templates
       - name: Deploy ECS Fargate stack
         working-directory: infra
         run: |

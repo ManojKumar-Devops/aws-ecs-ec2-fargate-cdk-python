@@ -6,8 +6,8 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_autoscaling as autoscaling,
     aws_ecs as ecs,
-    aws_ecs_patterns as ecs_patterns,
-    aws_ecr as ecr,
+    aws_elasticloadbalancingv2 as elbv2,
+    aws_iam as iam,
 )
 
 class EcsEc2Stack(Stack):
@@ -16,57 +16,106 @@ class EcsEc2Stack(Stack):
         scope: Construct,
         construct_id: str,
         vpc: ec2.IVpc,
-        repository: ecr.IRepository,
+        image_uri: str,
+        ecs_instance_role_arn: str,
+        ecs_exec_role_arn: str,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # -------------------------------
+        # ECS Cluster (classic EC2)
+        # -------------------------------
         cluster = ecs.Cluster(self, "Ec2Cluster", vpc=vpc)
 
-        # ASG providing EC2 capacity for ECS
+        # -------------------------------
+        # IMPORT EXISTING ROLES (NO CREATE)
+        # -------------------------------
+        instance_role = iam.Role.from_role_arn(
+            self, "EcsInstanceRole",
+            ecs_instance_role_arn,
+            mutable=False,
+        )
+
+        exec_role = iam.Role.from_role_arn(
+            self, "EcsExecRole",
+            ecs_exec_role_arn,
+            mutable=False,
+        )
+
+        # -------------------------------
+        # Auto Scaling Group (EC2 capacity)
+        # -------------------------------
         asg = autoscaling.AutoScalingGroup(
             self, "EcsAsg",
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            instance_type=ec2.InstanceType("t3.micro"),
+            machine_image=ecs.EcsOptimizedImage.amazon_linux2(),
             min_capacity=1,
             desired_capacity=1,
             max_capacity=2,
-            instance_type=ec2.InstanceType("t3.micro"),
-            machine_image=ecs.EcsOptimizedImage.amazon_linux2(),
+            role=instance_role,
         )
 
-        cp = ecs.AsgCapacityProvider(
-            self, "AsgCapacityProvider",
-            auto_scaling_group=asg,
-            enable_managed_scaling=True,
-        )
-        cluster.add_asg_capacity_provider(cp)
+        # 🔴 IMPORTANT: classic ECS registration (NO capacity provider)
+        cluster.add_auto_scaling_group(asg)
 
-        # Task definition with required memory for EC2 launch type
-        task_def = ecs.Ec2TaskDefinition(self, "TaskDef")
+        # -------------------------------
+        # Task Definition (EC2)
+        # -------------------------------
+        task_def = ecs.Ec2TaskDefinition(
+            self, "TaskDef",
+            execution_role=exec_role,
+        )
+
         container = task_def.add_container(
             "hello",
-            image=ecs.ContainerImage.from_ecr_repository(repository, tag="latest"),
+            image=ecs.ContainerImage.from_registry(image_uri),
             memory_limit_mib=256,
             cpu=128,
         )
-        container.add_port_mappings(ecs.PortMapping(container_port=8080))
+        container.add_port_mappings(
+            ecs.PortMapping(container_port=8080)
+        )
 
-        svc = ecs_patterns.ApplicationLoadBalancedEc2Service(
-            self, "Ec2Hello",
+        # -------------------------------
+        # ECS Service (EC2)
+        # -------------------------------
+        service = ecs.Ec2Service(
+            self, "HelloService",
             cluster=cluster,
-            public_load_balancer=True,
-            desired_count=1,
             task_definition=task_def,
+            desired_count=1,
         )
 
-        svc.target_group.configure_health_check(
-            path="/",
-            healthy_http_codes="200",
-            interval=Duration.seconds(30),
+        # -------------------------------
+        # Application Load Balancer
+        # -------------------------------
+        alb = elbv2.ApplicationLoadBalancer(
+            self, "Alb",
+            vpc=vpc,
+            internet_facing=True,
         )
 
-        scaling = svc.service.auto_scale_task_count(min_capacity=1, max_capacity=3)
-        scaling.scale_on_cpu_utilization("CpuScaling", target_utilization_percent=50)
+        listener = alb.add_listener("HttpListener", port=80, open=True)
 
-        CfnOutput(self, "Ec2EcsAlbUrl", value=f"http://{svc.load_balancer.load_balancer_dns_name}")
+        tg = listener.add_targets(
+            "EcsTargets",
+            port=8080,
+            targets=[service],
+            health_check=elbv2.HealthCheck(
+                path="/",
+                healthy_http_codes="200",
+                interval=Duration.seconds(30),
+            ),
+        )
+
+        # -------------------------------
+        # Output
+        # -------------------------------
+        CfnOutput(
+            self,
+            "Ec2EcsAlbUrl",
+            value=f"http://{alb.load_balancer_dns_name}",
+        )
