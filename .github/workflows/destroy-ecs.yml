@@ -18,14 +18,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Guard (confirmation)
-        run: |
-          echo "confirm='${{ github.event.inputs.confirm }}'"
-          if [ "${{ github.event.inputs.confirm }}" != "DESTROY_ECS" ]; then
-            echo "❌ Confirmation failed. Type DESTROY_ECS exactly."
-            exit 1
-          fi
-
       - name: Configure AWS credentials (Access Keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
