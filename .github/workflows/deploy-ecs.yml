@@ -91,14 +91,13 @@ jobs:
           echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
 
       - name: Set ECS execution role ARN
-        run: |
-          echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
+        run: echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
 
       - name: Set ECS instance role ARN
-        run: |
-          echo "ECS_INSTANCE_ROLE_ARN=${{ vars.ECS_INSTANCE_ROLE_ARN }}" >> $GITHUB_ENV
+        run: echo "ECS_INSTANCE_ROLE_ARN=${{ vars.ECS_INSTANCE_ROLE_ARN }}" >> $GITHUB_ENV
 
-      - name: CDK synth (ECS only)
+      # ✅ ONE synth for everything (Network + ECR + ECS)
+      - name: CDK synth (ECS enabled)
         working-directory: infra
         run: |
           echo "Using IMAGE_URI=$IMAGE_URI"
@@ -106,6 +105,22 @@ jobs:
           echo "Using ECS_INSTANCE_ROLE_ARN=$ECS_INSTANCE_ROLE_ARN"
           rm -rf cdk.out
           cdk synth -c deploy_ec2_asg=false -c deploy_ecs=true
+
+      # ✅ Deploy NetworkStack from SAME cdk.out
+      - name: Deploy NetworkStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name NetworkStack \
+            --template-file cdk.out/NetworkStack.template.json
+
+      # ✅ Deploy EcrStack from SAME cdk.out
+      - name: Deploy EcrStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcrStack \
+            --template-file cdk.out/EcrStack.template.json
 
       - name: Deploy ECS Fargate stack
         working-directory: infra
