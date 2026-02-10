@@ -36,10 +36,24 @@ class Ec2AlbAsgHelloStack(Stack):
         user_data.add_commands(
             "yum update -y",
             "amazon-linux-extras install -y nginx1 || yum install -y nginx",
-            "echo 'Hello World from EC2 + ALB 🚀' > /usr/share/nginx/html/index.html",
+
+            "cat > /usr/share/nginx/html/index.html <<'EOF'\n"
+            "<!doctype html>\n"
+            "<html>\n"
+            "  <head>\n"
+            "    <meta charset=\"utf-8\" />\n"
+            "    <title>Hello</title>\n"
+            "  </head>\n"
+            "  <body>\n"
+            "    <h1>Hello World from EC2 + ALB 🚀</h1>\n"
+            "  </body>\n"
+            "</html>\n"
+            "EOF",
+
             "systemctl enable nginx",
             "systemctl start nginx",
         )
+
 
         asg = autoscaling.AutoScalingGroup(
             self, "Asg",
