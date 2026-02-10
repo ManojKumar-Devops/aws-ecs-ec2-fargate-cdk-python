@@ -32,6 +32,14 @@ if deploy_ec2_asg:
 # ECS stacks: enable only when you have full IAM permissions in real AWS
 if deploy_ecs:
     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, repository=ecr.repo, env=env)
-    EcsEc2Stack(app, "EcsEc2Stack", vpc=network.vpc, repository=ecr.repo, env=env)
+    EcsEc2Stack(
+    app,
+    "EcsEc2Stack",
+    vpc=network.vpc,
+    image_uri=image_uri,
+    ecs_exec_role_arn=ecs_exec_role_arn,
+    ecs_instance_role_arn=ecs_instance_role_arn,
+    env=env,
+)
 
 app.synth()
