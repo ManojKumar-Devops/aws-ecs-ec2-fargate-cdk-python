@@ -1,11 +1,13 @@
 name: Deploy ECS (Fargate + EC2-managed)
 
 on:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "infra/**"
+      - "app/**"
+      - ".github/workflows/deploy-ecs.yml"
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: "Type DEPLOY_ECS to confirm deployment"
-        required: true
 
 permissions:
   contents: read
@@ -13,11 +15,10 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPO: hello-world-lab
-  ALLOW_ECS_DEPLOY: ${{ secrets.ALLOW_ECS_DEPLOY }}
 
 jobs:
   deploy-ecs:
-    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' && github.event.inputs.confirm == 'DEPLOY_ECS' }}
+    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -43,11 +44,11 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: CDK synth (ECS enabled)
+      - name: CDK synth (ECS only)
         working-directory: infra
         run: |
           rm -rf cdk.out
-          cdk synth -c deploy_ecs=true
+          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=true
 
       - name: Deploy NetworkStack
         working-directory: infra
@@ -56,7 +57,7 @@ jobs:
             --stack-name NetworkStack \
             --template-file cdk.out/NetworkStack.template.json
 
-      - name: Deploy EcrStack (creates hello-world-lab repo)
+      - name: Deploy EcrStack
         working-directory: infra
         run: |
           aws cloudformation deploy \

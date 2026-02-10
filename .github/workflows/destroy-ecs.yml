@@ -1,0 +1,40 @@
+name: Destroy ECS stacks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  destroy-ecs:
+    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete ECS stacks (reverse order)
+        run: |
+          aws cloudformation delete-stack --stack-name EcsEc2Stack || true
+          aws cloudformation wait stack-delete-complete --stack-name EcsEc2Stack || true
+
+          aws cloudformation delete-stack --stack-name EcsFargateStack || true
+          aws cloudformation wait stack-delete-complete --stack-name EcsFargateStack || true
+
+          aws cloudformation delete-stack --stack-name EcrStack || true
+          aws cloudformation wait stack-delete-complete --stack-name EcrStack || true
+
+          aws cloudformation delete-stack --stack-name NetworkStack || true
+          aws cloudformation wait stack-delete-complete --stack-name NetworkStack || true
