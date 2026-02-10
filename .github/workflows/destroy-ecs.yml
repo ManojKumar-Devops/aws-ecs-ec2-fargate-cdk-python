@@ -11,7 +11,7 @@ env:
 
 jobs:
   destroy-ecs:
-    if: ${{ secrets.ALLOW_ECS_DEPLOY == 'true' }}
+    if: ${{ vars.ALLOW_ECS_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
