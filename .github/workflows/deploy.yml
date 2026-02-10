@@ -1,23 +1,14 @@
-name: Deploy (CDK synth -> CloudFormation)
+name: CI (CDK synth)
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch: {}
 
-concurrency:
-  group: deploy-main
-  cancel-in-progress: true
-
-env:
-  AWS_REGION: us-east-1
-
 jobs:
-  deploy:
+  synth:
     runs-on: ubuntu-latest
-
     permissions:
-      id-token: write   # OIDC
       contents: read
 
     steps:
@@ -35,65 +26,14 @@ jobs:
           pip install -r infra/requirements.txt
           npm install -g aws-cdk@2
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: CDK synth
         working-directory: infra
         run: |
           rm -rf cdk.out
           cdk synth
 
-      # 🔽 REPLACEMENT STARTS HERE 🔽
-
-      - name: Deploy NetworkStack (no deploy helper)
-        working-directory: infra
-        run: |
-          set -euo pipefail
-          STACK=NetworkStack
-          TEMPLATE=file://cdk.out/NetworkStack.template.json
-
-          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
-            aws cloudformation update-stack \
-              --stack-name "$STACK" \
-              --template-body "$TEMPLATE" || true
-            aws cloudformation wait stack-update-complete --stack-name "$STACK" || true
-          else
-            aws cloudformation create-stack \
-              --stack-name "$STACK" \
-              --template-body "$TEMPLATE"
-            aws cloudformation wait stack-create-complete --stack-name "$STACK"
-          fi
-
-      - name: Deploy EC2 ALB ASG Stack (no deploy helper)
-        working-directory: infra
-        run: |
-          set -euo pipefail
-          STACK=Ec2AlbAsgHelloStack
-          TEMPLATE=file://cdk.out/Ec2AlbAsgHelloStack.template.json
-
-          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
-            aws cloudformation update-stack \
-              --stack-name "$STACK" \
-              --template-body "$TEMPLATE" \
-              --capabilities CAPABILITY_IAM || true
-            aws cloudformation wait stack-update-complete --stack-name "$STACK" || true
-          else
-            aws cloudformation create-stack \
-              --stack-name "$STACK" \
-              --template-body "$TEMPLATE" \
-              --capabilities CAPABILITY_IAM
-            aws cloudformation wait stack-create-complete --stack-name "$STACK"
-          fi
-
-      # 🔼 REPLACEMENT ENDS HERE 🔼
-
-      - name: Show Outputs
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name Ec2AlbAsgHelloStack \
-            --query "Stacks[0].Outputs" \
-            --output table
+      - name: Upload synthesized templates
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-templates
+          path: infra/cdk.out/*.template.json
