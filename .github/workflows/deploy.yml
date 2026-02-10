@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install CDK deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r infra/requirements.txt
@@ -47,20 +47,49 @@ jobs:
           rm -rf cdk.out
           cdk synth
 
-      - name: Deploy NetworkStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name NetworkStack \
-            --template-file cdk.out/NetworkStack.template.json
+      # 🔽 REPLACEMENT STARTS HERE 🔽
 
-      - name: Deploy EC2 ALB ASG stack
+      - name: Deploy NetworkStack (no deploy helper)
         working-directory: infra
         run: |
-          aws cloudformation deploy \
-            --stack-name Ec2AlbAsgHelloStack \
-            --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
-            --capabilities CAPABILITY_IAM
+          set -euo pipefail
+          STACK=NetworkStack
+          TEMPLATE=file://cdk.out/NetworkStack.template.json
+
+          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
+            aws cloudformation update-stack \
+              --stack-name "$STACK" \
+              --template-body "$TEMPLATE" || true
+            aws cloudformation wait stack-update-complete --stack-name "$STACK" || true
+          else
+            aws cloudformation create-stack \
+              --stack-name "$STACK" \
+              --template-body "$TEMPLATE"
+            aws cloudformation wait stack-create-complete --stack-name "$STACK"
+          fi
+
+      - name: Deploy EC2 ALB ASG Stack (no deploy helper)
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          STACK=Ec2AlbAsgHelloStack
+          TEMPLATE=file://cdk.out/Ec2AlbAsgHelloStack.template.json
+
+          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
+            aws cloudformation update-stack \
+              --stack-name "$STACK" \
+              --template-body "$TEMPLATE" \
+              --capabilities CAPABILITY_IAM || true
+            aws cloudformation wait stack-update-complete --stack-name "$STACK" || true
+          else
+            aws cloudformation create-stack \
+              --stack-name "$STACK" \
+              --template-body "$TEMPLATE" \
+              --capabilities CAPABILITY_IAM
+            aws cloudformation wait stack-create-complete --stack-name "$STACK"
+          fi
+
+      # 🔼 REPLACEMENT ENDS HERE 🔼
 
       - name: Show Outputs
         run: |
