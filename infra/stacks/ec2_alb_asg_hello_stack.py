@@ -36,7 +36,7 @@ class Ec2AlbAsgHelloStack(Stack):
         user_data.add_commands(
             "yum update -y",
             "amazon-linux-extras install -y nginx1 || yum install -y nginx",
-            "echo 'Hello World from EC2 + ALB + ASG (CDK Python)!' > /usr/share/nginx/html/index.html",
+            "echo 'Hello World from EC2 + ALB 🚀' > /usr/share/nginx/html/index.html",
             "systemctl enable nginx",
             "systemctl start nginx",
         )
