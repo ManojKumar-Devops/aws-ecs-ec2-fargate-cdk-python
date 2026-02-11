@@ -130,13 +130,13 @@ jobs:
             --template-file cdk.out/EcsFargateStack.template.json \
             --capabilities CAPABILITY_NAMED_IAM
 
-      - name: Deploy ECS EC2-managed stack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name EcsEc2Stack \
-            --template-file cdk.out/EcsEc2Stack.template.json \
-            --capabilities CAPABILITY_NAMED_IAM
+      # - name: Deploy ECS EC2-managed stack
+      #   working-directory: infra
+      #   run: |
+      #     aws cloudformation deploy \
+      #       --stack-name EcsEc2Stack \
+      #       --template-file cdk.out/EcsEc2Stack.template.json \
+      #       --capabilities CAPABILITY_NAMED_IAM
 
       - name: Print ALB URLs
         working-directory: infra
@@ -147,8 +147,8 @@ jobs:
             --query "Stacks[0].Outputs" \
             --output table
 
-          echo "=== ECS EC2-managed ==="
-          aws cloudformation describe-stacks \
-            --stack-name EcsEc2Stack \
-            --query "Stacks[0].Outputs" \
-            --output table
+          # echo "=== ECS EC2-managed ==="
+          # aws cloudformation describe-stacks \
+          #   --stack-name EcsEc2Stack \
+          #   --query "Stacks[0].Outputs" \
+          #   --output table

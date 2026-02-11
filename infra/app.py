@@ -7,7 +7,7 @@ from stacks.ecr_stack import EcrStack
 
 from stacks.ec2_alb_asg_hello_stack import Ec2AlbAsgHelloStack
 from stacks.ecs_fargate_stack import EcsFargateStack
-from stacks.ecs_ec2_stack import EcsEc2Stack
+# from stacks.ecs_ec2_stack import EcsEc2Stack
 
 app = cdk.App()
 
@@ -28,6 +28,6 @@ if deploy_ec2_asg:
 
 if deploy_ecs:
     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
-    EcsEc2Stack(app, "EcsEc2Stack", vpc=network.vpc, env=env)
+    # EcsEc2Stack(app, "EcsEc2Stack", vpc=network.vpc, env=env)
 
 app.synth()
