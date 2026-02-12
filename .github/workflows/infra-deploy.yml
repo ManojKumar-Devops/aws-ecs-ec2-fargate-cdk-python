@@ -45,13 +45,29 @@ jobs:
         env:
           GH_PAT: ${{ secrets.RUNNER_REG_PAT }}
         run: |
+          set -euo pipefail
+
           OWNER='${{ vars.REPO_OWNER }}'
           REPO='${{ vars.REPO_NAME }}'
-          TOKEN=$(curl -sS -X POST \
+
+          echo "Using OWNER=$OWNER REPO=$REPO"
+
+          RESP=$(curl -sS -X POST \
             -H "Authorization: token ${GH_PAT}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${OWNER}/${REPO}/actions/runners/registration-token" | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
-          echo "token=${TOKEN}" >> $GITHUB_OUTPUT    
+            "https://api.github.com/repos/${OWNER}/${REPO}/actions/runners/registration-token")
+
+          echo "GitHub API response:"
+          echo "$RESP"
+
+          TOKEN=$(echo "$RESP" | python3 -c "import sys, json; print(json.load(sys.stdin).get('token',''))")
+
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: GitHub did not return a registration token."
+            exit 1
+          fi
+
+          echo "token=${TOKEN}" >> $GITHUB_OUTPUT
 
       - name: CDK synth (infra)
         working-directory: infra
