@@ -22,7 +22,7 @@ ecr = EcrStack(app, "EcrStack", env=env)
 
 # Context switches
 deploy_ec2_asg = app.node.try_get_context("deploy_ec2_asg") != "false"
-deploy_ecs = app.node.try_get_context("deploy_ecs") == "true"
+deploy_ecs = app.node.try_get_context("deploy_ecs") == "false"
 deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
 
 if deploy_ec2_asg:
