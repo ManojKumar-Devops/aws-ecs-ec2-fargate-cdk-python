@@ -97,9 +97,8 @@ jobs:
             -c deploy_ecs=false \
             -c deploy_ecs_bg=true \
             -c image_uri=$IMAGE_URI \
-            -c ecs_exec_role_arn=$ECS_EXEC_ROLE_ARN \
-            -c codedeploy_role_arn=$CODEDEPLOY_ROLE_ARN \
-            -c ecs_task_role_arn=$ECS_TASK_ROLE_ARN
+            -c ecs_exec_role_arn=${{ vars.ECS_EXEC_ROLE_ARN }} \
+            -c codedeploy_role_arn=${{ vars.CODEDEPLOY_ROLE_ARN }} 
 
       - name: Deploy ECS Blue/Green Stack (infra)
         working-directory: infra
