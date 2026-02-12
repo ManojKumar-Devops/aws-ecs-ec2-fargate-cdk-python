@@ -15,11 +15,12 @@ class EcsFargateStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # Allow infra deploy to succeed even before release workflow pushes real image
         image_uri = (
             self.node.try_get_context("image_uri")
             or os.getenv("IMAGE_URI")
             or "public.ecr.aws/nginx/nginx:latest"
-)
+        )
 
         exec_role_arn = self.node.try_get_context("ecs_exec_role_arn") or os.getenv("ECS_EXEC_ROLE_ARN")
         if not exec_role_arn:
@@ -48,6 +49,7 @@ class EcsFargateStack(Stack):
         container.add_port_mappings(ecs.PortMapping(container_port=8080))
 
         alb = elbv2.ApplicationLoadBalancer(self, "Alb", vpc=vpc, internet_facing=True)
+
         prod_listener = alb.add_listener("ProdListener", port=80, open=True)
         test_listener = alb.add_listener("TestListener", port=9000, open=True)
 
@@ -57,7 +59,11 @@ class EcsFargateStack(Stack):
             port=8080,
             protocol=elbv2.ApplicationProtocol.HTTP,
             target_type=elbv2.TargetType.IP,
-            health_check=elbv2.HealthCheck(path="/", healthy_http_codes="200"),
+            health_check=elbv2.HealthCheck(
+                path="/",
+                healthy_http_codes="200",
+                interval=Duration.seconds(30),
+            ),
         )
 
         green_tg = elbv2.ApplicationTargetGroup(
@@ -66,14 +72,20 @@ class EcsFargateStack(Stack):
             port=8080,
             protocol=elbv2.ApplicationProtocol.HTTP,
             target_type=elbv2.TargetType.IP,
-            health_check=elbv2.HealthCheck(path="/", healthy_http_codes="200"),
+            health_check=elbv2.HealthCheck(
+                path="/",
+                healthy_http_codes="200",
+                interval=Duration.seconds(30),
+            ),
         )
 
-        prod_listener.add_target_groups("ProdTG", target_groups=[blue_tg])
-        test_listener.add_target_groups("TestTG", target_groups=[green_tg])
+        # Initial wiring (CodeDeploy will shift traffic between these)
+        prod_listener.add_target_groups("ProdTGs", target_groups=[blue_tg])
+        test_listener.add_target_groups("TestTGs", target_groups=[green_tg])
 
         service_sg = ec2.SecurityGroup(self, "ServiceSg", vpc=vpc, allow_all_outbound=True)
-        service_sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(8080), "allow ALB health checks")
+        # Fargate tasks receive traffic only from ALB; simplest for lab is allow from VPC CIDR
+        service_sg.add_ingress_rule(ec2.Peer.ipv4(vpc.vpc_cidr_block), ec2.Port.tcp(8080), "HTTP from VPC/ALB")
 
         service = ecs.FargateService(
             self, "Service",
@@ -85,13 +97,34 @@ class EcsFargateStack(Stack):
             deployment_controller=ecs.DeploymentController(type=ecs.DeploymentControllerType.CODE_DEPLOY),
         )
 
-        # Attach both TGs (CodeDeploy shifts traffic)
+        # Attach BOTH target groups (required for ECS Blue/Green with CodeDeploy)
         service.attach_to_application_target_group(blue_tg)
         service.attach_to_application_target_group(green_tg)
 
-        cd_app = codedeploy.EcsApplication(self, "EcsCdApp")
+        cd_app = codedeploy.EcsApplication(self, "EcsCodeDeployApp")
 
         dg = codedeploy.EcsDeploymentGroup(
-            self, "EcsDg",
+            self,
+            "EcsDeploymentGroup",
             application=cd_app,
-            service=se
+            service=service,
+            role=cd_role,
+            blue_green_deployment_config=codedeploy.EcsBlueGreenDeploymentConfig(
+                blue_target_group=blue_tg,
+                green_target_group=green_tg,
+                listener=prod_listener,
+                test_listener=test_listener,
+            ),
+            deployment_config=codedeploy.EcsDeploymentConfig.CANARY_10PERCENT_5MINUTES,
+            auto_rollback=codedeploy.AutoRollbackConfig(
+                failed_deployment=True,
+                stopped_deployment=True,
+                deployment_in_alarm=True,
+            ),
+        )
+
+        CfnOutput(self, "AlbUrl", value=f"http://{alb.load_balancer_dns_name}")
+        CfnOutput(self, "CodeDeployApp", value=cd_app.application_name)
+        CfnOutput(self, "CodeDeployDg", value=dg.deployment_group_name)
+        CfnOutput(self, "ProdListenerPort", value="80")
+        CfnOutput(self, "TestListenerPort", value="9000")
