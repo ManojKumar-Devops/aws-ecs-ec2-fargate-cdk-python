@@ -24,8 +24,9 @@ class EcsFargateStack(Stack):
         # Image URI injected by pipeline (optional for first deploy; CodeDeploy will update later)
         image_uri = self.node.try_get_context("image_uri") or os.getenv("IMAGE_URI")
         if not image_uri:
-            # You can allow empty image_uri if you want infra-only deploy
-            raise ValueError("Missing image_uri (context) or IMAGE_URI (env var)")
+            # placeholder so CDK synth/deploy can run before CI builds/pushes the image
+            image_uri = "public.ecr.aws/nginx/nginx:latest"
+
 
         # Pre-created execution role (manual) to avoid iam:PutRolePolicy
         exec_role_arn = self.node.try_get_context("ecs_exec_role_arn") or os.getenv("ECS_EXEC_ROLE_ARN")
