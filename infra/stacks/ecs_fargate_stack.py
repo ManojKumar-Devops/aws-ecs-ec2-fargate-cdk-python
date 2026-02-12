@@ -121,7 +121,7 @@ class EcsFargateStack(Stack):
                 listener=prod_listener,
                 test_listener=test_listener,
             ),
-            deployment_config=codedeploy.EcsDeploymentConfig.CANARY_10PERCENT_5MINUTES,
+            deployment_config=codedeploy.EcsDeploymentConfig.CANARY_10_PERCENT_5_MINUTES,
             auto_rollback=codedeploy.AutoRollbackConfig(
                 failed_deployment=True,
                 stopped_deployment=True,
