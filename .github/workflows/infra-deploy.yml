@@ -40,21 +40,32 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Generate GitHub runner registration token
+        id: regtoken
+        env:
+          GH_PAT: ${{ secrets.RUNNER_REG_PAT }}
+        run: |
+          OWNER='${{ vars.REPO_OWNER }}'
+          REPO='${{ vars.REPO_NAME }}'
+          TOKEN=$(curl -sS -X POST \
+            -H "Authorization: token ${GH_PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${OWNER}/${REPO}/actions/runners/registration-token" | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
+          echo "token=${TOKEN}" >> $GITHUB_OUTPUT    
+
       - name: CDK synth (infra)
         working-directory: infra
         run: |
           rm -rf cdk.out
           cdk synth \
             -c deploy_runners=true \
-            -c deploy_ec2_bg=true \
-            -c deploy_ecs_bg=true \
             -c github_owner='${{ vars.REPO_OWNER }}' \
             -c github_repo='${{ vars.REPO_NAME }}' \
             -c runner_labels='${{ vars.RUNNER_LABELS }}' \
-            -c github_pat_ssm_param='${{ vars.RUNNER_PAT_SSM_PARAM }}' \
+            -c runner_reg_token='${{ steps.regtoken.outputs.token }}' \
             -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
             -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
-            -c image_uri='public.ecr.aws/nginx/nginx:latest'  # ECS stack needs it; release workflow supplies real image later
+            -c image_uri='public.ecr.aws/nginx/nginx:latest'
 
       - name: Deploy NetworkStack
         working-directory: infra
