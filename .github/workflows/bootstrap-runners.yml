@@ -1,0 +1,15 @@
+name: Bootstrap Self-Hosted Runners
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hello
+        run: echo "bootstrap workflow trigger works"
