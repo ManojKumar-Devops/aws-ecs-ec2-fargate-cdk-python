@@ -51,7 +51,13 @@ class EcsFargateStack(Stack):
         alb = elbv2.ApplicationLoadBalancer(self, "Alb", vpc=vpc, internet_facing=True)
 
         prod_listener = alb.add_listener("ProdListener", port=80, open=True)
-        test_listener = alb.add_listener("TestListener", port=9000, open=True)
+        test_listener = alb.add_listener(
+            "TestListener",
+            port=9000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            open=True,
+        )
+
 
         blue_tg = elbv2.ApplicationTargetGroup(
             self, "BlueTG",
