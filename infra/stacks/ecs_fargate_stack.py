@@ -125,7 +125,7 @@ class EcsFargateStack(Stack):
             auto_rollback=codedeploy.AutoRollbackConfig(
                 failed_deployment=True,
                 stopped_deployment=True,
-                deployment_in_alarm=True,
+                deployment_in_alarm=False,
             ),
         )
 
