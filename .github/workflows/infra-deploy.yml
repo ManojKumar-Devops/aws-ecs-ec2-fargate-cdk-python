@@ -78,6 +78,15 @@ jobs:
             --template-file cdk.out/GithubRunnerStack.template.json \
             --capabilities CAPABILITY_NAMED_IAM
 
+      - name: Debug CFN events (GithubRunnerStack)
+        if: failure()
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name GithubRunnerStack \
+            --region "${AWS_REGION}" \
+            --query "StackEvents[].[Timestamp,ResourceStatus,LogicalResourceId,ResourceType,ResourceStatusReason]" \
+            --output table
+
       - name: Deploy EC2 Blue/Green stack
         working-directory: infra
         run: |
