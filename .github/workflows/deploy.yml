@@ -1,4 +1,4 @@
-name: Deploy (CDK synth -> CloudFormation)
+name: Deploy (CDK synth -> CFN + CodeDeploy Blue/Green)
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
     branches: [ "main" ]
     paths:
       - "infra/**"
+      - "app/**"
       - ".github/workflows/deploy.yml"
 
 permissions:
@@ -13,11 +14,31 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+  RUNNER_ASG_NAME: GithubRunnersStack-RunnerAsg # update with actual ASG name
+  CDK_STACK_NETWORK: NetworkStack
+  CDK_STACK_BG: Ec2AlbAsgBlueGreenStack
 
 jobs:
-  deploy:
+  scale-up-runners:
     runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
+      - name: Scale up self-hosted runner ASG
+        run: |
+          aws autoscaling update-auto-scaling-group \
+            --auto-scaling-group-name "${RUNNER_ASG_NAME}" \
+            --min-size 0 --max-size 5 --desired-capacity 2
+
+  deploy:
+    needs: [scale-up-runners]
+    runs-on: [self-hosted, linux, ec2, spotmix]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,31 +62,45 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: CDK synth (EC2 only)
+      - name: CDK synth
         working-directory: infra
         run: |
           rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=true -c deploy_ecs=false
+          cdk synth -c deploy_ec2_bg=true
 
       - name: Deploy NetworkStack
         working-directory: infra
         run: |
           aws cloudformation deploy \
-            --stack-name NetworkStack \
+            --stack-name ${CDK_STACK_NETWORK} \
             --template-file cdk.out/NetworkStack.template.json
 
-      - name: Deploy EC2 ALB ASG stack
+      - name: Deploy Blue/Green infra (ALB/ASGs/CodeDeploy)
         working-directory: infra
         run: |
           aws cloudformation deploy \
-            --stack-name Ec2AlbAsgHelloStack \
-            --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
+            --stack-name ${CDK_STACK_BG} \
+            --template-file cdk.out/${CDK_STACK_BG}.template.json \
             --capabilities CAPABILITY_IAM
 
-      - name: Print ALB URL
-        working-directory: infra
+      # Create deployment artifact and trigger CodeDeploy here
+      # (You will add appspec.yml + scripts in your repo, zip it, upload to S3, then create-deployment)
+
+  scale-down-runners:
+    if: always()
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scale down self-hosted runner ASG
         run: |
-          aws cloudformation describe-stacks \
-            --stack-name Ec2AlbAsgHelloStack \
-            --query "Stacks[0].Outputs" \
-            --output table
+          aws autoscaling update-auto-scaling-group \
+            --auto-scaling-group-name "${RUNNER_ASG_NAME}" \
+            --min-size 0 --desired-capacity 0
