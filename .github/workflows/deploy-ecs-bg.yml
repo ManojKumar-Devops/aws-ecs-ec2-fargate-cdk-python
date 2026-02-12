@@ -55,7 +55,7 @@ jobs:
         working-directory: infra
         run: |
           rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false -c deploy_ecs_bg=false
+          cdk synth -c deploy-ec2-asg=false -c deploy-ecs=false -c deploy-ecs-bg=true
           aws cloudformation deploy \
             --stack-name EcrStack \
             --template-file cdk.out/EcrStack.template.json
