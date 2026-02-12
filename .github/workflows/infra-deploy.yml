@@ -75,6 +75,7 @@ jobs:
           rm -rf cdk.out
           cdk synth \
             -c deploy_runners=true \
+            -c use_spot=true \
             -c github_owner='${{ vars.REPO_OWNER }}' \
             -c github_repo='${{ vars.REPO_NAME }}' \
             -c runner_labels='${{ vars.RUNNER_LABELS }}' \
