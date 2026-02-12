@@ -1,4 +1,4 @@
-name: Bootstrap Self-Hosted Runner Stack
+name: Bootstrap Self-Hosted Runners
 
 on:
   workflow_dispatch:
@@ -21,10 +21,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install CDK + deps
+      - name: Install CDK
         run: |
           npm install -g aws-cdk
-          python -m pip install --upgrade pip
           pip install -r infra/requirements.txt
 
       - name: Configure AWS credentials (OIDC)
@@ -33,20 +32,13 @@ jobs:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: CDK synth (runners only)
+      - name: CDK synth
         working-directory: infra
         run: |
           rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false -c deploy_ecs_bg=false -c deploy_runners=true
+          cdk synth -c deploy_runners=true
 
-      - name: Deploy NetworkStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name NetworkStack \
-            --template-file cdk.out/NetworkStack.template.json
-
-      - name: Deploy GithubRunnerStack
+      - name: Deploy Runner Stack
         working-directory: infra
         run: |
           aws cloudformation deploy \
