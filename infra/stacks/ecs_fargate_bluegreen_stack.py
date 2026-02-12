@@ -23,10 +23,14 @@ class EcsFargateBlueGreenStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # ----- Inputs: image + roles (imported to avoid inline policy writes in restricted accounts)
-        image_uri = self.node.try_get_context("image_uri") or os.getenv("IMAGE_URI")
-        if not image_uri:
-            raise ValueError("Missing image_uri (context) or IMAGE_URI (env var)")
+        # Image is only needed for the initial service creation.
+        # Real releases will update the task definition via CodeDeploy AppSpec later.
+        image_uri = (
+            self.node.try_get_context("image_uri")
+            or os.getenv("IMAGE_URI")
+            or "public.ecr.aws/docker/library/nginx:latest"
+        )
+
 
         exec_role_arn = self.node.try_get_context("ecs_exec_role_arn") or os.getenv("ECS_EXEC_ROLE_ARN")
         if not exec_role_arn:
