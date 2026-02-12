@@ -1,6 +1,6 @@
 name: Bootstrap Self-Hosted Runners (one-time)
 
-on:
+"on":
   workflow_dispatch:
 
 permissions:
