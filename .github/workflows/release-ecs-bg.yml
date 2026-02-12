@@ -1,0 +1,101 @@
+name: Release ECS Blue/Green (CodeDeploy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "app/**"
+      - ".github/workflows/release-ecs-bg.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: hello-world-lab
+
+jobs:
+  release:
+    runs-on: [self-hosted, linux, x64, lab-runner]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GITHUB_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region "$AWS_REGION" | \
+            docker login --username AWS --password-stdin \
+            "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+      - name: Build & Push
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${GITHUB_SHA}"
+          cd app
+          docker build -t "${ECR_REPO}:${GITHUB_SHA}" .
+          docker tag "${ECR_REPO}:${GITHUB_SHA}" "${IMAGE_URI}"
+          docker push "${IMAGE_URI}"
+          echo "IMAGE_URI=${IMAGE_URI}" >> $GITHUB_ENV
+
+      - name: Fetch CodeDeploy App/DG from stack outputs
+        run: |
+          APP=$(aws cloudformation describe-stacks --stack-name EcsFargateStack --query "Stacks[0].Outputs[?OutputKey=='CodeDeployApp'].OutputValue" --output text)
+          DG=$(aws cloudformation describe-stacks --stack-name EcsFargateStack --query "Stacks[0].Outputs[?OutputKey=='CodeDeployDg'].OutputValue" --output text)
+          echo "CD_APP=$APP" >> $GITHUB_ENV
+          echo "CD_DG=$DG" >> $GITHUB_ENV
+
+      - name: Render taskdef + appspec
+        run: |
+          cat > taskdef.json <<EOF
+          {
+            "family": "hello-bg",
+            "networkMode": "awsvpc",
+            "requiresCompatibilities": ["FARGATE"],
+            "cpu": "256",
+            "memory": "512",
+            "executionRoleArn": "${{ vars.ECS_EXEC_ROLE_ARN }}",
+            "containerDefinitions": [
+              {
+                "name": "App",
+                "image": "${IMAGE_URI}",
+                "essential": true,
+                "portMappings": [{"containerPort": 8080, "protocol": "tcp"}]
+              }
+            ]
+          }
+          EOF
+
+          cat > appspec.yaml <<'EOF'
+          version: 1
+          Resources:
+            - TargetService:
+                Type: AWS::ECS::Service
+                Properties:
+                  TaskDefinition: <TASK_DEFINITION>
+                  LoadBalancerInfo:
+                    ContainerName: "App"
+                    ContainerPort: 8080
+          EOF
+
+      - name: Create CodeDeploy deployment
+        run: |
+          REV=$(aws deploy register-application-revision \
+            --application-name "$CD_APP" \
+            --description "GitHub $GITHUB_SHA" \
+            --revision "revisionType=AppSpecContent,appSpecContent={content=$(cat appspec.yaml | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),sha256=$(sha256sum appspec.yaml | awk "{print \$1}")}" \
+            --query "revisionInfo.revisionType" --output text || true)
+
+          aws deploy create-deployment \
+            --application-name "$CD_APP" \
+            --deployment-group-name "$CD_DG" \
+            --revision "revisionType=AppSpecContent,appSpecContent={content=$(cat appspec.yaml | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),sha256=$(sha256sum appspec.yaml | awk "{print \$1}")}" \
+            --deployment-config-name CodeDeployDefault.ECSCanary10Percent5Minutes

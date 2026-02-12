@@ -1,0 +1,99 @@
+name: Infra Deploy (CDK synth -> CloudFormation)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-deploy.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  infra:
+    runs-on: [self-hosted, linux, x64, lab-runner]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          npm install -g aws-cdk
+          python -m pip install --upgrade pip
+          pip install -r infra/requirements.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GITHUB_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK synth (infra)
+        working-directory: infra
+        run: |
+          rm -rf cdk.out
+          cdk synth \
+            -c deploy_runners=true \
+            -c deploy_ec2_bg=true \
+            -c deploy_ecs_bg=true \
+            -c github_owner='${{ vars.GITHUB_OWNER }}' \
+            -c github_repo='${{ vars.GITHUB_REPO }}' \
+            -c runner_labels='${{ vars.RUNNER_LABELS }}' \
+            -c github_pat_secret_arn='${{ vars.GITHUB_PAT_SECRET_ARN }}' \
+            -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
+            -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
+            -c image_uri='dummy'  # ECS stack needs it; release workflow supplies real image later
+
+      - name: Deploy NetworkStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name NetworkStack \
+            --template-file cdk.out/NetworkStack.template.json
+
+      - name: Deploy EcrStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcrStack \
+            --template-file cdk.out/EcrStack.template.json
+
+      - name: Deploy GithubRunnerStack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name GithubRunnerStack \
+            --template-file cdk.out/GithubRunnerStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy EC2 Blue/Green stack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name Ec2AlbAsgHelloStack \
+            --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Deploy ECS Blue/Green stack
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcsFargateStack \
+            --template-file cdk.out/EcsFargateStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Print Outputs
+        working-directory: infra
+        run: |
+          aws cloudformation describe-stacks --stack-name Ec2AlbAsgHelloStack --query "Stacks[0].Outputs" --output table
+          aws cloudformation describe-stacks --stack-name EcsFargateStack --query "Stacks[0].Outputs" --output table

@@ -1,0 +1,55 @@
+name: Release EC2 Blue/Green (CodeDeploy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "ec2-app/**"
+      - ".github/workflows/release-ec2-bg.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  release:
+    runs-on: [self-hosted, linux, x64, lab-runner]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GITHUB_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch CodeDeploy App/DG from stack outputs
+        run: |
+          APP=$(aws cloudformation describe-stacks --stack-name Ec2AlbAsgHelloStack --query "Stacks[0].Outputs[?OutputKey=='CodeDeployApp'].OutputValue" --output text)
+          DG=$(aws cloudformation describe-stacks --stack-name Ec2AlbAsgHelloStack --query "Stacks[0].Outputs[?OutputKey=='CodeDeployDg'].OutputValue" --output text)
+          echo "CD_APP=$APP" >> $GITHUB_ENV
+          echo "CD_DG=$DG" >> $GITHUB_ENV
+
+      - name: Package artifact
+        run: |
+          cd ec2-app
+          zip -r ../ec2-app-${GITHUB_SHA}.zip .
+          cd ..
+          ls -lh ec2-app-${GITHUB_SHA}.zip
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp "ec2-app-${GITHUB_SHA}.zip" "s3://${{ vars.CODEDEPLOY_ARTIFACT_BUCKET }}/ec2/ec2-app-${GITHUB_SHA}.zip"
+
+      - name: Create CodeDeploy deployment
+        run: |
+          aws deploy create-deployment \
+            --application-name "$CD_APP" \
+            --deployment-group-name "$CD_DG" \
+            --revision "revisionType=S3Location,s3Location={bucket=${{ vars.CODEDEPLOY_ARTIFACT_BUCKET }},key=ec2/ec2-app-${GITHUB_SHA}.zip,bundleType=zip}" \
+            --deployment-config-name CodeDeployDefault.AllAtOnce
