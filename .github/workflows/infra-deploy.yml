@@ -52,7 +52,7 @@ jobs:
             -c github_pat_secret_arn='${{ vars.GITHUB_PAT_SECRET_ARN }}' \
             -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
             -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
-            -c image_uri='dummy'  # ECS stack needs it; release workflow supplies real image later
+            -c image_uri='public.ecr.aws/nginx/nginx:latest'  # ECS stack needs it; release workflow supplies real image later
 
       - name: Deploy NetworkStack
         working-directory: infra
