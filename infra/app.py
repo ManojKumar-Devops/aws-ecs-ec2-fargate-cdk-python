@@ -4,6 +4,7 @@ import aws_cdk as cdk
 
 from stacks.network_stack import NetworkStack
 from stacks.ecr_stack import EcrStack
+from stacks.github_runner_stack import GithubRunnerStack
 
 from stacks.ec2_alb_asg_hello_stack import Ec2AlbAsgHelloStack
 from stacks.ecs_fargate_stack import EcsFargateStack
@@ -24,9 +25,13 @@ ecr = EcrStack(app, "EcrStack", env=env)
 deploy_ec2_asg = app.node.try_get_context("deploy_ec2_asg") != "false"
 deploy_ecs = app.node.try_get_context("deploy_ecs") == "true"
 deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
+deploy_runners = app.node.try_get_context("deploy_runners") == "true"
 
 if deploy_ec2_asg:
     Ec2AlbAsgHelloStack(app, "Ec2AlbAsgHelloStack", vpc=network.vpc, env=env)
+
+if deploy_runners:
+    GithubRunnerStack(app, "GithubRunnerStack", vpc=network.vpc, env=env)
 
 if deploy_ecs:
     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
