@@ -3,21 +3,21 @@ from constructs import Construct
 from aws_cdk import (
     Stack,
     CfnOutput,
+    Fn,
     aws_ec2 as ec2,
-    aws_autoscaling as autoscaling,
     aws_iam as iam,
+    aws_autoscaling as autoscaling,
 )
 
 class GithubRunnerStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Context/env
         github_owner = self.node.try_get_context("github_owner") or os.getenv("REPO_OWNER")
         github_repo = self.node.try_get_context("github_repo") or os.getenv("REPO_NAME")
         runner_labels = self.node.try_get_context("runner_labels") or os.getenv("RUNNER_LABELS") or "lab-runner"
 
-        # NEW: PAT stored in SSM Parameter Store
+        # PAT stored in SSM SecureString
         pat_param_name = self.node.try_get_context("github_pat_ssm_param") or os.getenv("RUNNER_PAT_SSM_PARAM")
         if not github_owner or not github_repo or not pat_param_name:
             raise ValueError("Missing github_owner/github_repo/github_pat_ssm_param (context) or env vars")
@@ -32,21 +32,25 @@ class GithubRunnerStack(Stack):
             ],
         )
 
-        # Allow EC2 instance to read PAT from SSM SecureString
+        # Read PAT from SSM SecureString
         role.add_to_policy(iam.PolicyStatement(
             actions=["ssm:GetParameter"],
             resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter{pat_param_name}"],
         ))
 
-        # Allow decrypt for SecureString (default SSM key is aws/ssm; kms:Decrypt needed in some accounts)
+        # Often required to decrypt SecureString (lab-friendly; tighten later)
         role.add_to_policy(iam.PolicyStatement(
             actions=["kms:Decrypt"],
             resources=["*"],
         ))
 
-        # Allow deployments from runner (broad for lab; tighten later)
+        # Give the runner enough power to run your CDK deploys (lab)
         role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("PowerUserAccess"))
-        role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("IAMReadOnlyAccess"))
+
+        instance_profile = iam.CfnInstanceProfile(
+            self, "RunnerInstanceProfile",
+            roles=[role.role_name],
+        )
 
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
@@ -66,7 +70,7 @@ class GithubRunnerStack(Stack):
             "yum install -y python3 python3-pip || true",
             "python3 -m pip install --upgrade pip",
 
-            # GitHub runner
+            # runner install
             "mkdir -p /opt/actions-runner",
             "cd /opt/actions-runner",
             "RUNNER_VERSION=2.316.1",
@@ -74,7 +78,7 @@ class GithubRunnerStack(Stack):
             "tar xzf actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz",
             "chown -R ec2-user:ec2-user /opt/actions-runner",
 
-            # Bootstrap script (SSM)
+            # bootstrap
             "cat > /opt/actions-runner/bootstrap.sh <<'EOF'\n"
             "#!/usr/bin/env bash\n"
             "set -euxo pipefail\n"
@@ -83,10 +87,7 @@ class GithubRunnerStack(Stack):
             f"RUNNER_LABELS='{runner_labels}'\n"
             f"PAT_PARAM_NAME='{pat_param_name}'\n"
             "\n"
-            "# Fetch PAT from SSM SecureString\n"
             "PAT=$(aws ssm get-parameter --name \"$PAT_PARAM_NAME\" --with-decryption --query Parameter.Value --output text)\n"
-            "\n"
-            "# Get runner registration token\n"
             "REG_TOKEN=$(curl -sS -X POST \\\n"
             "  -H \"Authorization: token ${PAT}\" \\\n"
             "  -H \"Accept: application/vnd.github+json\" \\\n"
@@ -106,40 +107,51 @@ class GithubRunnerStack(Stack):
             "/opt/actions-runner/bootstrap.sh",
         )
 
-        asg = autoscaling.AutoScalingGroup(
-            self, "RunnerAsg",
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            min_capacity=0,
-            desired_capacity=1,
-            max_capacity=3,
-            instance_type=ec2.InstanceType("t3.large"),
-            machine_image=ec2.AmazonLinuxImage(generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2),
-            role=role,
-            security_group=sg,
-            user_data=user_data,
+        # AMI for LaunchTemplate
+        ami = ec2.MachineImage.latest_amazon_linux2().get_image(self).image_id
+
+        # Launch Template (required for MixedInstancesPolicy)
+        lt = ec2.CfnLaunchTemplate(
+            self, "RunnerLaunchTemplate",
+            launch_template_data=ec2.CfnLaunchTemplate.LaunchTemplateDataProperty(
+                image_id=ami,
+                instance_type="t3.large",  # base type; overrides will add others
+                security_group_ids=[sg.security_group_id],
+                iam_instance_profile=ec2.CfnLaunchTemplate.IamInstanceProfileProperty(
+                    name=instance_profile.ref
+                ),
+                user_data=Fn.base64(user_data.render()),
+            )
         )
 
-        # MixedInstancesPolicy (On-Demand base + Spot)
-        cfn_asg = asg.node.default_child
-        cfn_asg.add_property_override("MixedInstancesPolicy", {
-            "InstancesDistribution": {
-                "OnDemandBaseCapacity": 1,
-                "OnDemandPercentageAboveBaseCapacity": 20,
-                "SpotAllocationStrategy": "capacity-optimized",
-            },
-            "LaunchTemplate": {
-                "LaunchTemplateSpecification": {
-                    "LaunchTemplateId": {"Ref": "RunnerAsgLaunchConfig"},
-                    "Version": {"Fn::GetAtt": ["RunnerAsgLaunchConfig", "LatestVersionNumber"]},
-                },
-                "Overrides": [
-                    {"InstanceType": "t3.large"},
-                    {"InstanceType": "t3.xlarge"},
-                    {"InstanceType": "m5.large"},
-                ],
-            },
-        })
+        public_subnet_ids = [subnet.subnet_id for subnet in vpc.public_subnets]
+
+        # MixedInstancesPolicy ASG (On-Demand + Spot)
+        autoscaling.CfnAutoScalingGroup(
+            self, "RunnerAsg",
+            vpc_zone_identifier=public_subnet_ids,
+            min_size="0",
+            max_size="3",
+            desired_capacity="1",
+            mixed_instances_policy=autoscaling.CfnAutoScalingGroup.MixedInstancesPolicyProperty(
+                instances_distribution=autoscaling.CfnAutoScalingGroup.InstancesDistributionProperty(
+                    on_demand_base_capacity=1,
+                    on_demand_percentage_above_base_capacity=20,
+                    spot_allocation_strategy="capacity-optimized",
+                ),
+                launch_template=autoscaling.CfnAutoScalingGroup.LaunchTemplateProperty(
+                    launch_template_specification=autoscaling.CfnAutoScalingGroup.LaunchTemplateSpecificationProperty(
+                        launch_template_id=lt.ref,
+                        version=lt.attr_latest_version_number,
+                    ),
+                    overrides=[
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="t3.large"),
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="t3.xlarge"),
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="m5.large"),
+                    ]
+                )
+            )
+        )
 
         CfnOutput(self, "RunnerLabels", value=runner_labels)
         CfnOutput(self, "RunnerRepo", value=f"{github_owner}/{github_repo}")
