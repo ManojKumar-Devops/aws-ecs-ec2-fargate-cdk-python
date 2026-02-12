@@ -1,55 +1,15 @@
-name: Bootstrap Self-Hosted Runners (one-time)
+name: Bootstrap Self-Hosted Runners
 
-"on":
-  workflow_dispatch:
+on:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  AWS_REGION: us-east-1
-
 jobs:
-  bootstrap:
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install CDK + deps
-        run: |
-          npm install -g aws-cdk
-          python -m pip install --upgrade pip
-          pip install -r infra/requirements.txt
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: CDK synth (runners only)
-        working-directory: infra
-        run: |
-          rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false -c deploy_ecs_bg=false -c deploy_runners=true
-
-      - name: Deploy NetworkStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name NetworkStack \
-            --template-file cdk.out/NetworkStack.template.json
-
-      - name: Deploy GithubRunnerStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name GithubRunnerStack \
-            --template-file cdk.out/GithubRunnerStack.template.json \
-            --capabilities CAPABILITY_NAMED_IAM
+      - name: Hello
+        run: echo "bootstrap workflow trigger works"
