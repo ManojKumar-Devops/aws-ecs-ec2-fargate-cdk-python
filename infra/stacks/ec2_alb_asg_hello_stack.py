@@ -92,7 +92,7 @@ class Ec2AlbAsgHelloStack(Stack):
             application=cd_app,
             role=cd_role,
             auto_scaling_groups=[asg],
-            deployment_config=codedeploy.ServerDeploymentConfig.CANARY_10PERCENT_5MINUTES,
+            deployment_config=codedeploy.ServerDeploymentConfig.ONE_AT_A_TIME,
             load_balancer=codedeploy.LoadBalancer.application(blue_tg, green_tg, listener),
             auto_rollback=codedeploy.AutoRollbackConfig(
                 failed_deployment=True,
