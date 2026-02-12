@@ -19,7 +19,7 @@ env:
 
 jobs:
   deploy-ecs-bg:
-    runs-on: [self-hosted, aws, cdk]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
