@@ -75,7 +75,7 @@ jobs:
           rm -rf cdk.out
           cdk synth \
             -c deploy_runners=true \
-            -c use_spot=true \
+            -c use_spot=false \
             -c github_owner='${{ vars.REPO_OWNER }}' \
             -c github_repo='${{ vars.REPO_NAME }}' \
             -c runner_labels='${{ vars.RUNNER_LABELS }}' \
@@ -106,14 +106,26 @@ jobs:
             --template-file cdk.out/GithubRunnerStack.template.json \
             --capabilities CAPABILITY_NAMED_IAM
 
-      - name: Debug CFN events (GithubRunnerStack)
+      - name: Create ChangeSet for GithubRunnerStack (debug)
         if: failure()
+        working-directory: infra
         run: |
-          aws cloudformation describe-stack-events \
+          set -euo pipefail
+          CS_NAME="debug-$(date +%s)"
+          echo "Creating ChangeSet: $CS_NAME"
+          aws cloudformation create-change-set \
             --stack-name GithubRunnerStack \
-            --region "${AWS_REGION}" \
-            --query "StackEvents[].[Timestamp,ResourceStatus,LogicalResourceId,ResourceType,ResourceStatusReason]" \
-            --output table
+            --change-set-name "$CS_NAME" \
+            --change-set-type CREATE \
+            --template-body file://cdk.out/GithubRunnerStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM || true
+
+          echo "Describe ChangeSet:"
+          aws cloudformation describe-change-set \
+            --stack-name GithubRunnerStack \
+            --change-set-name "$CS_NAME" \
+            --query "{Status:Status,StatusReason:StatusReason,ExecutionStatus:ExecutionStatus,Changes:Changes}" \
+            --output json || true
 
       - name: Deploy EC2 Blue/Green stack
         working-directory: infra
