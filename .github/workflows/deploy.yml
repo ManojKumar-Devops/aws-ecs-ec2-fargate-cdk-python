@@ -81,6 +81,8 @@ jobs:
         run: |
           rm -rf cdk.out
           cdk synth -c deploy_ec2_bg=true
+        env:
+          IMAGE_URI: ${{ env.IMAGE_URI }}
 
       - name: Deploy NetworkStack
         working-directory: infra
