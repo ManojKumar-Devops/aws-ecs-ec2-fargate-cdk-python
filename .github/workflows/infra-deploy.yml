@@ -48,10 +48,11 @@ jobs:
             -c deploy_runners=true \
             -c deploy_ec2_bg=true \
             -c deploy_ecs_bg=true \
-            -c github_owner='${{ vars.GITHUB_OWNER }}' \
-            -c github_repo='${{ vars.GITHUB_REPO }}' \
+            -c github_owner='${{ vars.REPO_OWNER }}' \
+            -c github_repo='${{ vars.REPO_NAME }}' \
             -c runner_labels='${{ vars.RUNNER_LABELS }}' \
-            -c github_pat_secret_arn='${{ vars.GITHUB_PAT_SECRET_ARN }}' \
+            -c github_pat_ssm_param='${{ vars.RUNNER_PAT_SSM_PARAM }}' \
+
             -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
             -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
             -c image_uri='public.ecr.aws/nginx/nginx:latest'  # ECS stack needs it; release workflow supplies real image later
