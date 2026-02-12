@@ -41,7 +41,7 @@ if deploy_runners:
 
 # ECS stacks: enable only when you have full IAM permissions in real AWS
 if deploy_ecs:
-    EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, repository=ecr.repo, env=env)
+    EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
     EcsEc2Stack(app, "EcsEc2Stack", vpc=network.vpc, repository=ecr.repo, env=env)
 
 app.synth()
