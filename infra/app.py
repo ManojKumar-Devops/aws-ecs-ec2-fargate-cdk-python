@@ -24,7 +24,7 @@ ecr = EcrStack(app, "EcrStack", env=env)
 # Context switches
 deploy_ec2_asg = app.node.try_get_context("deploy_ec2_asg") != "false"
 deploy_ecs = app.node.try_get_context("deploy_ecs") == "true"
-deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
+deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") 
 deploy_runners = app.node.try_get_context("deploy_runners") == "true"
 
 if deploy_ec2_asg:
@@ -37,7 +37,12 @@ if deploy_ecs:
     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
     # EcsEc2Stack(app, "EcsEc2Stack", vpc=network.vpc, env=env)
 
-if deploy_ecs_bg:
-    EcsFargateBlueGreenStack(app, "EcsFargateBlueGreenStack", vpc=network.vpc, env=env)    
+if deploy_ecs_bg == "true":
+    EcsFargateBlueGreenStack(
+        app,
+        "EcsFargateBlueGreenStack",
+        vpc=network.vpc,
+        env=env
+    )    
 
 app.synth()
