@@ -21,7 +21,7 @@ EcrStack(app, "EcrStack", env=env)
 # ✅ Deploy only when context == "true"
 deploy_runners = app.node.try_get_context("deploy_runners") == "true"
 deploy_ec2_bg = app.node.try_get_context("deploy_ec2_bg") == "true"
-deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
+# deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
 deploy_runner_ecs = app.node.try_get_context("deploy_runner_ecs") == "true"
 
 # ✅ In your lab, keep EC2 runners + EC2 BG disabled (SCP denies EC2/ASG)
