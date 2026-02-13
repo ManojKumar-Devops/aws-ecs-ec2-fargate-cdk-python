@@ -80,7 +80,7 @@ class GithubRunnerEcsStack(Stack):
             ),
             environment={
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
-                "ACCESS_TOKEN": runner_pat.value_as_string,  # PAT (NoEcho param)
+                "ACCESS_TOKEN": runner_pat.value_as_string,
                 "RUNNER_NAME": runner_name,
                 "RUNNER_LABELS": runner_labels,
                 "RUNNER_WORKDIR": "/tmp/runner",
@@ -88,6 +88,7 @@ class GithubRunnerEcsStack(Stack):
                 "DISABLE_AUTO_UPDATE": "true",
             },
         )
+
             environment={
                 # For repo runner, REPO_URL must be full repo URL :contentReference[oaicite:2]{index=2}
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
