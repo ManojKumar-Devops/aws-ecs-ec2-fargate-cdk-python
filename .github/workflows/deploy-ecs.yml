@@ -1,154 +1,154 @@
-name: Deploy ECS (Fargate + EC2-managed)
+# name: Deploy ECS (Fargate + EC2-managed)
 
-on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - "infra/**"
-      - "app/**"
-      - ".github/workflows/deploy-ecs.yml"
-  workflow_dispatch:
+# on:
+#   push:
+#     branches: [ "main" ]
+#     paths:
+#       - "infra/**"
+#       - "app/**"
+#       - ".github/workflows/deploy-ecs.yml"
+#   workflow_dispatch:
 
-permissions:
-  contents: read
+# permissions:
+#   contents: read
 
-env:
-  AWS_REGION: us-east-1
-  ECR_REPO: hello-world-lab
+# env:
+#   AWS_REGION: us-east-1
+#   ECR_REPO: hello-world-lab
 
-jobs:
-  deploy-ecs:
-    runs-on: ubuntu-latest
+# jobs:
+#   deploy-ecs:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+#       - name: Setup Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
 
-      - name: Install CDK + Python deps
-        run: |
-          npm install -g aws-cdk
-          python -m pip install --upgrade pip
-          pip install -r infra/requirements.txt
+#       - name: Install CDK + Python deps
+#         run: |
+#           npm install -g aws-cdk
+#           python -m pip install --upgrade pip
+#           pip install -r infra/requirements.txt
 
-      - name: Configure AWS credentials (Access Keys)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ env.AWS_REGION }}
+#       - name: Configure AWS credentials (Access Keys)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+#           aws-region: ${{ env.AWS_REGION }}
 
-      # Optional safety toggle (Repo Variable: ALLOW_ECS_DEPLOY=true)
-      - name: Guard - allow ECS deploy
-        run: |
-          echo "ALLOW_ECS_DEPLOY='${{ vars.ALLOW_ECS_DEPLOY }}'"
-          if [ "${{ vars.ALLOW_ECS_DEPLOY }}" != "true" ]; then
-            echo "ECS deploy disabled. Set repo variable ALLOW_ECS_DEPLOY=true"
-            exit 1
-          fi
+#       # Optional safety toggle (Repo Variable: ALLOW_ECS_DEPLOY=true)
+#       - name: Guard - allow ECS deploy
+#         run: |
+#           echo "ALLOW_ECS_DEPLOY='${{ vars.ALLOW_ECS_DEPLOY }}'"
+#           if [ "${{ vars.ALLOW_ECS_DEPLOY }}" != "true" ]; then
+#             echo "ECS deploy disabled. Set repo variable ALLOW_ECS_DEPLOY=true"
+#             exit 1
+#           fi
 
-      - name: Deploy NetworkStack
-        working-directory: infra
-        run: |
-          rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
-          aws cloudformation deploy \
-            --stack-name NetworkStack \
-            --template-file cdk.out/NetworkStack.template.json
+#       - name: Deploy NetworkStack
+#         working-directory: infra
+#         run: |
+#           rm -rf cdk.out
+#           cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
+#           aws cloudformation deploy \
+#             --stack-name NetworkStack \
+#             --template-file cdk.out/NetworkStack.template.json
 
-      - name: Deploy EcrStack (creates hello-world-lab repo)
-        working-directory: infra
-        run: |
-          rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
-          aws cloudformation deploy \
-            --stack-name EcrStack \
-            --template-file cdk.out/EcrStack.template.json
+#       - name: Deploy EcrStack (creates hello-world-lab repo)
+#         working-directory: infra
+#         run: |
+#           rm -rf cdk.out
+#           cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false
+#           aws cloudformation deploy \
+#             --stack-name EcrStack \
+#             --template-file cdk.out/EcrStack.template.json
 
-      - name: Login to Amazon ECR
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          aws ecr get-login-password --region "$AWS_REGION" | \
-            docker login --username AWS --password-stdin \
-            "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+#       - name: Login to Amazon ECR
+#         run: |
+#           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+#           aws ecr get-login-password --region "$AWS_REGION" | \
+#             docker login --username AWS --password-stdin \
+#             "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-      - name: Build and push image to ECR
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          cd app
-          docker build -t "${ECR_REPO}:latest" .
-          docker tag "${ECR_REPO}:latest" "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
-          docker push "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
+#       - name: Build and push image to ECR
+#         run: |
+#           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+#           cd app
+#           docker build -t "${ECR_REPO}:latest" .
+#           docker tag "${ECR_REPO}:latest" "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
+#           docker push "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
 
-      - name: Set IMAGE_URI env
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
+#       - name: Set IMAGE_URI env
+#         run: |
+#           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+#           echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
 
-      - name: Set ECS execution role ARN
-        run: echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
+#       - name: Set ECS execution role ARN
+#         run: echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
 
-      - name: Set ECS instance role ARN
-        run: echo "ECS_INSTANCE_ROLE_ARN=${{ vars.ECS_INSTANCE_ROLE_ARN }}" >> $GITHUB_ENV
+#       - name: Set ECS instance role ARN
+#         run: echo "ECS_INSTANCE_ROLE_ARN=${{ vars.ECS_INSTANCE_ROLE_ARN }}" >> $GITHUB_ENV
 
-      # ✅ ONE synth for everything (Network + ECR + ECS)
-      - name: CDK synth (ECS enabled)
-        working-directory: infra
-        run: |
-          echo "Using IMAGE_URI=$IMAGE_URI"
-          echo "Using ECS_EXEC_ROLE_ARN=$ECS_EXEC_ROLE_ARN"
-          echo "Using ECS_INSTANCE_ROLE_ARN=$ECS_INSTANCE_ROLE_ARN"
-          rm -rf cdk.out
-          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=true
+#       # ✅ ONE synth for everything (Network + ECR + ECS)
+#       - name: CDK synth (ECS enabled)
+#         working-directory: infra
+#         run: |
+#           echo "Using IMAGE_URI=$IMAGE_URI"
+#           echo "Using ECS_EXEC_ROLE_ARN=$ECS_EXEC_ROLE_ARN"
+#           echo "Using ECS_INSTANCE_ROLE_ARN=$ECS_INSTANCE_ROLE_ARN"
+#           rm -rf cdk.out
+#           cdk synth -c deploy_ec2_asg=false -c deploy_ecs=true
 
-      # ✅ Deploy NetworkStack from SAME cdk.out
-      - name: Deploy NetworkStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name NetworkStack \
-            --template-file cdk.out/NetworkStack.template.json
+#       # ✅ Deploy NetworkStack from SAME cdk.out
+#       - name: Deploy NetworkStack
+#         working-directory: infra
+#         run: |
+#           aws cloudformation deploy \
+#             --stack-name NetworkStack \
+#             --template-file cdk.out/NetworkStack.template.json
 
-      # ✅ Deploy EcrStack from SAME cdk.out
-      - name: Deploy EcrStack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name EcrStack \
-            --template-file cdk.out/EcrStack.template.json
+#       # ✅ Deploy EcrStack from SAME cdk.out
+#       - name: Deploy EcrStack
+#         working-directory: infra
+#         run: |
+#           aws cloudformation deploy \
+#             --stack-name EcrStack \
+#             --template-file cdk.out/EcrStack.template.json
 
-      - name: Deploy ECS Fargate stack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name EcsFargateStack \
-            --template-file cdk.out/EcsFargateStack.template.json \
-            --capabilities CAPABILITY_NAMED_IAM
+#       - name: Deploy ECS Fargate stack
+#         working-directory: infra
+#         run: |
+#           aws cloudformation deploy \
+#             --stack-name EcsFargateStack \
+#             --template-file cdk.out/EcsFargateStack.template.json \
+#             --capabilities CAPABILITY_NAMED_IAM
 
-      # - name: Deploy ECS EC2-managed stack
-      #   working-directory: infra
-      #   run: |
-      #     aws cloudformation deploy \
-      #       --stack-name EcsEc2Stack \
-      #       --template-file cdk.out/EcsEc2Stack.template.json \
-      #       --capabilities CAPABILITY_NAMED_IAM
+#       # - name: Deploy ECS EC2-managed stack
+#       #   working-directory: infra
+#       #   run: |
+#       #     aws cloudformation deploy \
+#       #       --stack-name EcsEc2Stack \
+#       #       --template-file cdk.out/EcsEc2Stack.template.json \
+#       #       --capabilities CAPABILITY_NAMED_IAM
 
-      - name: Print ALB URLs
-        working-directory: infra
-        run: |
-          echo "=== ECS Fargate ==="
-          aws cloudformation describe-stacks \
-            --stack-name EcsFargateStack \
-            --query "Stacks[0].Outputs" \
-            --output table
+#       - name: Print ALB URLs
+#         working-directory: infra
+#         run: |
+#           echo "=== ECS Fargate ==="
+#           aws cloudformation describe-stacks \
+#             --stack-name EcsFargateStack \
+#             --query "Stacks[0].Outputs" \
+#             --output table
 
-          # echo "=== ECS EC2-managed ==="
-          # aws cloudformation describe-stacks \
-          #   --stack-name EcsEc2Stack \
-          #   --query "Stacks[0].Outputs" \
-          #   --output table
+#           # echo "=== ECS EC2-managed ==="
+#           # aws cloudformation describe-stacks \
+#           #   --stack-name EcsEc2Stack \
+#           #   --query "Stacks[0].Outputs" \
+#           #   --output table
