@@ -68,9 +68,10 @@ class GithubRunnerEcsStack(Stack):
         container = task_def.add_container(
             "Runner",
             image=ecs.ContainerImage.from_registry("myoung34/github-runner:latest"),
-            logging=ecs.LogDriver.aws_logs(stream_prefix="runner"),
-            environment={ ... },
-        )
+            logging=ecs.LogDriver.aws_logs(
+                stream_prefix="runner",
+                environment={ ... },
+            ),
             environment={
                 # For repo runner, REPO_URL must be full repo URL :contentReference[oaicite:2]{index=2}
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
