@@ -3,7 +3,7 @@ name: Deploy Infra (CDK)
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "cicd" ]
     paths:
       - "infra/**"
       - ".github/workflows/infra.yml"

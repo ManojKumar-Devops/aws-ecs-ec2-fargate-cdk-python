@@ -3,7 +3,7 @@ name: Release EC2 (Blue/Green)
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "cicd" ]
     paths:
       - "app/**"
       - "infra/**"

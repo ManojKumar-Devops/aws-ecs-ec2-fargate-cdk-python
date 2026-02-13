@@ -3,7 +3,7 @@ name: Release ECS (Blue/Green)
 on:
   workflow_dispatch:
   push:
-    branches: [ "ecs" ]
+    branches: [ "cicd" ]
     paths:
       - "app/**"
       - "infra/**"
