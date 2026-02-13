@@ -56,6 +56,12 @@ class GithubRunnerEcsStack(Stack):
 
         cluster = ecs.Cluster(self, "RunnerCluster", vpc=vpc)
 
+        log_group = logs.LogGroup(
+            self, "RunnerLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
         task_def = ecs.FargateTaskDefinition(
             self,
             "RunnerTaskDef",
@@ -70,8 +76,18 @@ class GithubRunnerEcsStack(Stack):
             image=ecs.ContainerImage.from_registry("myoung34/github-runner:latest"),
             logging=ecs.LogDriver.aws_logs(
                 stream_prefix="runner",
-                environment={ ... },
+                log_group=log_group,
             ),
+            environment={
+                "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
+                "ACCESS_TOKEN": runner_pat.value_as_string,  # PAT (NoEcho param)
+                "RUNNER_NAME": runner_name,
+                "RUNNER_LABELS": runner_labels,
+                "RUNNER_WORKDIR": "/tmp/runner",
+                "EPHEMERAL": "false",
+                "DISABLE_AUTO_UPDATE": "true",
+            },
+        )
             environment={
                 # For repo runner, REPO_URL must be full repo URL :contentReference[oaicite:2]{index=2}
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
