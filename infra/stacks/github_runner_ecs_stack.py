@@ -71,12 +71,12 @@ class GithubRunnerEcsStack(Stack):
         # ----------------------------
         # CloudWatch Log Group
         # ----------------------------
-        log_group = logs.LogGroup(
-            self,
-            "RunnerLogs",
-            retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.RETAIN,  # Prevent delete failures
-        )
+        # log_group = logs.LogGroup(
+        #     self,
+        #     "RunnerLogs",
+        #     retention=logs.RetentionDays.ONE_WEEK,
+        #     removal_policy=RemovalPolicy.RETAIN,  # Prevent delete failures
+        # )
 
         # ----------------------------
         # Fargate Task Definition
@@ -98,7 +98,7 @@ class GithubRunnerEcsStack(Stack):
             image=ecs.ContainerImage.from_registry("myoung34/github-runner:latest"),
             logging=ecs.LogDriver.aws_logs(
                 stream_prefix="runner",
-                log_group=log_group,
+                # log_group=log_group,
             ),
             environment={
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
