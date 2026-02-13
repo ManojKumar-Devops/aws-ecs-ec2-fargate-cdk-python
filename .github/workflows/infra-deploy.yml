@@ -17,7 +17,7 @@ env:
 
 jobs:
   infra:
-    runs-on: [self-hosted, linux, x64, lab-runner]
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
