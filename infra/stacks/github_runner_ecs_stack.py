@@ -1,5 +1,6 @@
 import os
 from constructs import Construct
+from aws_cdk import RemovalPolicy
 from aws_cdk import (
     Stack,
     CfnParameter,
@@ -67,6 +68,7 @@ class GithubRunnerEcsStack(Stack):
         log_group = logs.LogGroup(
             self, "RunnerLogs",
             retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ prevents DeleteLogGroup during rollback
         )
 
         container = task_def.add_container(
