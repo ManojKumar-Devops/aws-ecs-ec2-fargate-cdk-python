@@ -1,3 +1,4 @@
+# infra/stacks/ec2_alb_asg_hello_stack.py
 from constructs import Construct
 from aws_cdk import (
     Stack,
@@ -25,18 +26,37 @@ class Ec2AlbAsgHelloStack(Stack):
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
         )
 
-        listener = alb.add_listener("HttpListener", port=80, open=True)
+        prod_listener = alb.add_listener("ProdListener", port=80, open=True)
 
-        # Security group for instances (then allow only from ALB)
+        # Create two target groups for blue/green
+        blue_tg = elbv2.ApplicationTargetGroup(
+            self, "BlueTargetGroup",
+            vpc=vpc,
+            port=80,
+            target_type=elbv2.TargetType.INSTANCE,
+            health_check=elbv2.HealthCheck(path="/", interval=Duration.seconds(30), healthy_http_codes="200")
+        )
+
+        green_tg = elbv2.ApplicationTargetGroup(
+            self, "GreenTargetGroup",
+            vpc=vpc,
+            port=80,
+            target_type=elbv2.TargetType.INSTANCE,
+            health_check=elbv2.HealthCheck(path="/", interval=Duration.seconds(30), healthy_http_codes="200")
+        )
+
+        # Attach blue as default
+        prod_listener.add_target_groups("ProdTargetGroups", target_groups=[blue_tg])
+
+        # Security group for instances (allow only from ALB)
         instance_sg = ec2.SecurityGroup(self, "InstanceSg", vpc=vpc, allow_all_outbound=True)
         instance_sg.add_ingress_rule(alb_sg, ec2.Port.tcp(80), "HTTP from ALB only")
 
-        # UserData: install nginx and serve Hello World
+        # UserData
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
             "yum update -y",
             "amazon-linux-extras install -y nginx1 || yum install -y nginx",
-
             "cat > /usr/share/nginx/html/index.html <<'EOF'\n"
             "<!doctype html>\n"
             "<html>\n"
@@ -49,11 +69,9 @@ class Ec2AlbAsgHelloStack(Stack):
             "  </body>\n"
             "</html>\n"
             "EOF",
-
             "systemctl enable nginx",
             "systemctl start nginx",
         )
-
 
         asg = autoscaling.AutoScalingGroup(
             self, "Asg",
@@ -68,19 +86,14 @@ class Ec2AlbAsgHelloStack(Stack):
             user_data=user_data,
         )
 
-        # Target group via listener
-        listener.add_targets(
-            "AppTargets",
-            port=80,
-            targets=[asg],
-            health_check=elbv2.HealthCheck(
-                path="/",
-                healthy_http_codes="200",
-                interval=Duration.seconds(30),
-            ),
-        )
+        # Attach ASG to both TGs — CodeDeploy will control traffic routing
+        blue_tg.add_target(asg)
+        green_tg.add_target(asg)
 
         # Basic scaling (CPU)
         asg.scale_on_cpu_utilization("CpuScaling", target_utilization_percent=50)
 
         CfnOutput(self, "AlbUrl", value=f"http://{alb.load_balancer_dns_name}")
+        CfnOutput(self, "BlueTargetGroupArn", value=blue_tg.target_group_arn)
+        CfnOutput(self, "GreenTargetGroupArn", value=green_tg.target_group_arn)
+        CfnOutput(self, "AsgName", value=asg.auto_scaling_group_name)

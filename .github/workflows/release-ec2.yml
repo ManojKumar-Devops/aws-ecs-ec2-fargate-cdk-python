@@ -1,0 +1,53 @@
+name: Release EC2 (Blue/Green)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "app/**"
+      - "infra/**"
+      - "cdk-deploy-artifacts/**"
+      - ".github/workflows/release-ec2.yml"
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: your-deploy-artifacts-bucket-name  # create or set a bucket
+
+jobs:
+  release-ec2:
+    runs-on: [self-hosted, linux, x64, lab-runner]   # use your self-hosted runners
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build artifact zip
+        run: |
+          mkdir -p release
+          cp -r cdk-deploy-artifacts/ec2/* release/
+          # add any app files
+          zip -r release/ec2-artifact.zip release/*
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload artifact to S3
+        run: |
+          aws s3 cp release/ec2-artifact.zip s3://${S3_BUCKET}/ec2-artifact.zip
+
+      - name: Create CodeDeploy deployment
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "my-ec2-codedeploy-app" \
+            --deployment-group-name "my-ec2-dg" \
+            --s3-location bucket=${S3_BUCKET},key=ec2-artifact.zip,bundleType=zip \
+            --query "deploymentId" --output text)
+          echo "Deployment started: $DEPLOYMENT_ID"

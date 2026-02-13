@@ -1,0 +1,66 @@
+name: Release ECS (Blue/Green)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "app/**"
+      - "infra/**"
+      - ".github/workflows/release-ecs.yml"
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: hello-world-lab
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted, linux, x64, lab-runner]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region "$AWS_REGION" | \
+            docker login --username AWS --password-stdin \
+            "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+      - name: Build and push image
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          docker build -t ${ECR_REPO}:latest app/
+          docker tag ${ECR_REPO}:latest ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+          docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+          echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
+
+      - name: Create imagedefinitions.json
+        run: |
+          echo '[{"name":"hello","imageUri":"'${IMAGE_URI}'"}]' > imagedefinitions.json
+          cat imagedefinitions.json
+
+      - name: Create CodeDeploy deployment (ECS)
+        run: |
+          # you need to know the CodeDeploy application + deployment group names created by CDK
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "my-ecs-codedeploy-app" \
+            --deployment-group-name "my-ecs-dg" \
+            --file-exists-behavior OVERWRITE \
+            --s3-location bucket=REPLACE_BUCKET,key=imagedefinitions.json,bundleType=json \
+            --query "deploymentId" --output text)
+          echo "Deployment started: $DEPLOYMENT_ID"
