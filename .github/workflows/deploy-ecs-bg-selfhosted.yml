@@ -1,0 +1,149 @@
+name: Deploy ECS BlueGreen (Self-hosted + CodeDeploy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "ecs" ]
+    paths:
+      - "infra/**"
+      - "app/**"
+      - ".github/workflows/deploy-ecs-bg-selfhosted.yml"
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: hello-world-lab
+
+  # Put these as Repo Variables (Settings -> Secrets and variables -> Actions -> Variables)
+  # RUNNER_ASG_NAME: (output from GithubRunnerStack)
+  # ECS_EXEC_ROLE_ARN: (your existing variable)
+
+jobs:
+  scale-up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scale up self-hosted runners (ASG desired=2)
+        run: |
+          echo "Scaling ASG: ${{ vars.RUNNER_ASG_NAME }}"
+          aws autoscaling set-desired-capacity \
+            --auto-scaling-group-name "${{ vars.RUNNER_ASG_NAME }}" \
+            --desired-capacity 2 \
+            --honor-cooldown
+
+  deploy:
+    needs: [scale-up]
+    runs-on: [self-hosted, linux, x64, lab-runner]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CDK + Python deps
+        run: |
+          npm install -g aws-cdk
+          python -m pip install --upgrade pip
+          pip install -r infra/requirements.txt
+
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy NetworkStack + EcrStack (from same synth)
+        working-directory: infra
+        run: |
+          rm -rf cdk.out
+          cdk synth -c deploy_ec2_asg=false -c deploy_ecs=false -c deploy_runners=false
+          aws cloudformation deploy \
+            --stack-name NetworkStack \
+            --template-file cdk.out/NetworkStack.template.json
+          aws cloudformation deploy \
+            --stack-name EcrStack \
+            --template-file cdk.out/EcrStack.template.json
+
+      - name: Login to Amazon ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region "$AWS_REGION" | \
+            docker login --username AWS --password-stdin \
+            "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+      - name: Build and push image to ECR
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          cd app
+          docker build -t "${ECR_REPO}:latest" .
+          docker tag "${ECR_REPO}:latest" "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
+          docker push "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
+          echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_ENV
+
+      - name: Export ECS execution role ARN
+        run: |
+          echo "ECS_EXEC_ROLE_ARN=${{ vars.ECS_EXEC_ROLE_ARN }}" >> $GITHUB_ENV
+
+      - name: CDK synth (ECS Blue/Green enabled)
+        working-directory: infra
+        run: |
+          rm -rf cdk.out
+          cdk synth \
+            -c deploy_ec2_asg=false \
+            -c deploy_ecs=true \
+            -c deploy_runners=false \
+            -c enable_bg=true \
+            -c enable_test_listener=true \
+            -c image_uri="$IMAGE_URI" \
+            -c ecs_exec_role_arn="$ECS_EXEC_ROLE_ARN"
+
+      - name: Deploy ECS Fargate stack (CodeDeploy controller)
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name EcsFargateStack \
+            --template-file cdk.out/EcsFargateStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Print URLs
+        working-directory: infra
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name EcsFargateStack \
+            --query "Stacks[0].Outputs" \
+            --output table
+
+  scale-down:
+    if: always()
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scale down self-hosted runners (ASG desired=0)
+        run: |
+          aws autoscaling set-desired-capacity \
+            --auto-scaling-group-name "${{ vars.RUNNER_ASG_NAME }}" \
+            --desired-capacity 0 \
+            --honor-cooldown
