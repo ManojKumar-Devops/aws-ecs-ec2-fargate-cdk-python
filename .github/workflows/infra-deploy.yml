@@ -9,7 +9,6 @@ on:
       - ".github/workflows/infra-deploy.yml"
 
 permissions:
-  id-token: write
   contents: read
 
 env:
@@ -40,51 +39,22 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Generate GitHub runner registration token
-        id: regtoken
-        env:
-          GH_PAT: ${{ secrets.RUNNER_REG_PAT }}
-        run: |
-          set -euo pipefail
-
-          OWNER='${{ vars.REPO_OWNER }}'
-          REPO='${{ vars.REPO_NAME }}'
-
-          echo "Using OWNER=$OWNER REPO=$REPO"
-
-          RESP=$(curl -sS -X POST \
-            -H "Authorization: token ${GH_PAT}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${OWNER}/${REPO}/actions/runners/registration-token")
-
-          echo "GitHub API response:"
-          echo "$RESP"
-
-          TOKEN=$(echo "$RESP" | python3 -c "import sys, json; print(json.load(sys.stdin).get('token',''))")
-
-          if [ -z "$TOKEN" ]; then
-            echo "ERROR: GitHub did not return a registration token."
-            exit 1
-          fi
-
-          echo "token=${TOKEN}" >> $GITHUB_OUTPUT
-
       - name: CDK synth (infra)
         working-directory: infra
         run: |
           rm -rf cdk.out
           cdk synth \
-          -c deploy_runners=false \
-          -c deploy_ec2_bg=false \
-          -c deploy_ecs_bg=true \
-          -c deploy_runner_ecs=true \
-          -c github_owner='${{ vars.REPO_OWNER }}' \
-          -c github_repo='${{ vars.REPO_NAME }}' \
-          -c runner_labels='${{ vars.RUNNER_LABELS }}' \
-          -c runner_task_role_arn='${{ vars.RUNNER_TASK_ROLE_ARN }}' \
-          -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
-          -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
-          -c image_uri='public.ecr.aws/nginx/nginx:latest'
+            -c deploy_runners=false \
+            -c deploy_ec2_bg=false \
+            -c deploy_ecs_bg=true \
+            -c deploy_runner_ecs=true \
+            -c github_owner='${{ vars.REPO_OWNER }}' \
+            -c github_repo='${{ vars.REPO_NAME }}' \
+            -c runner_labels='${{ vars.RUNNER_LABELS }}' \
+            -c runner_task_role_arn='${{ vars.RUNNER_TASK_ROLE_ARN }}' \
+            -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
+            -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
+            -c image_uri='public.ecr.aws/nginx/nginx:latest'
 
       - name: Deploy NetworkStack
         working-directory: infra
@@ -109,46 +79,18 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides RunnerPat='${{ secrets.RUNNER_REG_PAT }}'
 
-      # - name: Create ChangeSet for GithubRunnerStack (debug)
-      #   if: failure()
-      #   working-directory: infra
-      #   run: |
-      #     set -euo pipefail
-      #     CS_NAME="debug-$(date +%s)"
-      #     echo "Creating ChangeSet: $CS_NAME"
-      #     aws cloudformation create-change-set \
-      #       --stack-name GithubRunnerStack \
-      #       --change-set-name "$CS_NAME" \
-      #       --change-set-type CREATE \
-      #       --template-body file://cdk.out/GithubRunnerStack.template.json \
-      #       --capabilities CAPABILITY_NAMED_IAM || true
-
-      #     echo "Describe ChangeSet:"
-      #     aws cloudformation describe-change-set \
-      #       --stack-name GithubRunnerStack \
-      #       --change-set-name "$CS_NAME" \
-      #       --query "{Status:Status,StatusReason:StatusReason,ExecutionStatus:ExecutionStatus,Changes:Changes}" \
-      #       --output json || true
-
-      # - name: Deploy EC2 Blue/Green stack
-      #   working-directory: infra
-      #   run: |
-      #     aws cloudformation deploy \
-      #       --stack-name Ec2AlbAsgHelloStack \
-      #       --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
-      #       --capabilities CAPABILITY_NAMED_IAM
-
-      # - name: Deploy ECS Blue/Green stack
-      #   working-directory: infra
-      #   run: |
-      #     aws cloudformation deploy \
-      #       --stack-name EcsFargateStack \
-      #       --template-file cdk.out/EcsFargateStack.template.json \
-      #       --capabilities CAPABILITY_NAMED_IAM
-
-      - name: Print Outputs
+      - name: Print Outputs (safe)
         working-directory: infra
         run: |
-          aws cloudformation describe-stacks --stack-name Ec2AlbAsgHelloStack --query "Stacks[0].Outputs" --output table
-          aws cloudformation describe-stacks --stack-name EcsFargateStack --query "Stacks[0].Outputs" --output table
-          aws cloudformation describe-stacks --stack-name GithubRunnerEcsStack --query "Stacks[0].Outputs" --output table
+          set +e
+          for STACK in EcsFargateStack GithubRunnerEcsStack; do
+            echo "=== $STACK ==="
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK" \
+              --query "Stacks[0].Outputs" \
+              --output table 2>/dev/null
+            if [ $? -ne 0 ]; then
+              echo "Stack $STACK does not exist (skipping)."
+            fi
+            echo ""
+          done
