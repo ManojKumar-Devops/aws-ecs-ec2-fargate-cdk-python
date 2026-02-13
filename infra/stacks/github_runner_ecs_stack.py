@@ -65,19 +65,12 @@ class GithubRunnerEcsStack(Stack):
             task_role=task_role,   # 👈 important
         )
 
-        log_group = logs.LogGroup(
-            self, "RunnerLogs",
-            retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.RETAIN,  # ✅ prevents DeleteLogGroup during rollback
-        )
-
         container = task_def.add_container(
             "Runner",
             image=ecs.ContainerImage.from_registry("myoung34/github-runner:latest"),
-            logging=ecs.LogDriver.aws_logs(
-                stream_prefix="runner",
-                log_group=log_group,
-            ),
+            logging=ecs.LogDriver.aws_logs(stream_prefix="runner"),
+            environment={ ... },
+        )
             environment={
                 # For repo runner, REPO_URL must be full repo URL :contentReference[oaicite:2]{index=2}
                 "REPO_URL": f"https://github.com/{github_owner}/{github_repo}",
