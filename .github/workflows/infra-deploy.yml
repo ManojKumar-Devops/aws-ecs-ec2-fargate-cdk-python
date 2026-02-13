@@ -73,6 +73,7 @@ jobs:
         working-directory: infra
         run: |
           rm -rf cdk.out
+          cdk synth \
           -c deploy_runners=false \
           -c deploy_ec2_bg=false \
           -c deploy_ecs_bg=true \
