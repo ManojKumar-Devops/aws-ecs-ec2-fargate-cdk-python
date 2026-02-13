@@ -6,7 +6,7 @@ from stacks.network_stack import NetworkStack
 from stacks.ecr_stack import EcrStack
 from stacks.github_runner_ecs_stack import GithubRunnerEcsStack
 from stacks.ec2_alb_asg_hello_stack import Ec2AlbAsgHelloStack
-from stacks.ecs_fargate_stack import EcsFargateStack
+# from stacks.ecs_fargate_stack import EcsFargateStack
 
 app = cdk.App()
 
