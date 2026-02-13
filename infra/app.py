@@ -31,7 +31,7 @@ if deploy_runner_ecs:
 if deploy_ec2_bg:
     Ec2AlbAsgHelloStack(app, "Ec2AlbAsgHelloStack", vpc=network.vpc, env=env)
 
-if deploy_ecs_bg:
-    EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
+# if deploy_ecs_bg:
+#     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
 
 app.synth()
