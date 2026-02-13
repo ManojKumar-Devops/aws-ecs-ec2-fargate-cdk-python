@@ -82,6 +82,7 @@ jobs:
           -c github_repo='${{ vars.REPO_NAME }}' \
           -c runner_labels='${{ vars.RUNNER_LABELS }}' \
           -c runner_task_role_arn='${{ vars.RUNNER_TASK_ROLE_ARN }}' \
+          -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
           -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
           -c image_uri='public.ecr.aws/nginx/nginx:latest'
 
