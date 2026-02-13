@@ -3,7 +3,7 @@ name: Deploy ECS BlueGreen (Self-hosted + CodeDeploy)
 on:
   workflow_dispatch:
   push:
-    branches: [ "ecs" ]
+    branches: [ "main" ]
     paths:
       - "infra/**"
       - "app/**"
