@@ -48,16 +48,21 @@ if deploy_ecs_bg:
     EcsFargateBlueGreenStack(app, "EcsFargateBlueGreenStack", vpc=network.vpc, env=env)    
 =======
 if deploy_runners:
-    # your github owner/repo are fixed in this stack. If you want dynamic later, we can move to context vars.
+    runner_role_arn = app.node.try_get_context("runner_instance_role_arn") or os.getenv("RUNNER_INSTANCE_ROLE_ARN")
+    if not runner_role_arn:
+        raise ValueError("Missing runner_instance_role_arn (context) or RUNNER_INSTANCE_ROLE_ARN (env var)")
+
     GithubRunnerStack(
         app, "GithubRunnerStack",
         vpc=network.vpc,
         owner="ManojKumar-Devops",
-        repo="hello-devops-aws",
+        repo="aws-ecs-ec2-fargate-cdk-python",
+        runner_instance_role_arn=runner_role_arn,
         github_pat_secret_name="github/pat",
         runner_labels="lab-runner,ec2",
         env=env,
     )
+
 
 if deploy_ecs:
     EcsFargateStack(app, "EcsFargateStack", vpc=network.vpc, env=env)
