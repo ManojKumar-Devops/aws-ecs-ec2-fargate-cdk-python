@@ -17,7 +17,7 @@ env:
 
 jobs:
   infra:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, lab-runner]
 
     steps:
       - uses: actions/checkout@v4
@@ -73,11 +73,14 @@ jobs:
         working-directory: infra
         run: |
           rm -rf cdk.out
-          cdk synth \
           -c deploy_runners=false \
           -c deploy_ec2_bg=false \
           -c deploy_ecs_bg=true \
-          -c codedeploy_role_arn='${{ vars.CODEDEPLOY_ROLE_ARN }}' \
+          -c deploy_runner_ecs=true \
+          -c github_owner='${{ vars.REPO_OWNER }}' \
+          -c github_repo='${{ vars.REPO_NAME }}' \
+          -c runner_labels='${{ vars.RUNNER_LABELS }}' \
+          -c runner_task_role_arn='${{ vars.RUNNER_TASK_ROLE_ARN }}' \
           -c ecs_exec_role_arn='${{ vars.ECS_EXEC_ROLE_ARN }}' \
           -c image_uri='public.ecr.aws/nginx/nginx:latest'
 
@@ -95,13 +98,14 @@ jobs:
             --stack-name EcrStack \
             --template-file cdk.out/EcrStack.template.json
 
-      # - name: Deploy GithubRunnerStack
-      #   working-directory: infra
-      #   run: |
-      #     aws cloudformation deploy \
-      #       --stack-name GithubRunnerStack \
-      #       --template-file cdk.out/GithubRunnerStack.template.json \
-      #       --capabilities CAPABILITY_NAMED_IAM
+      - name: Deploy GithubRunnerEcsStack (Fargate runner)
+        working-directory: infra
+        run: |
+          aws cloudformation deploy \
+            --stack-name GithubRunnerEcsStack \
+            --template-file cdk.out/GithubRunnerEcsStack.template.json \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides RunnerPat='${{ secrets.RUNNER_REG_PAT }}'
 
       # - name: Create ChangeSet for GithubRunnerStack (debug)
       #   if: failure()
