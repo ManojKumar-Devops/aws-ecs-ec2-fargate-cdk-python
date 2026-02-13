@@ -48,16 +48,16 @@ if deploy_ecs_bg:
     EcsFargateBlueGreenStack(app, "EcsFargateBlueGreenStack", vpc=network.vpc, env=env)    
 =======
 if deploy_runners:
-    runner_role_arn = app.node.try_get_context("runner_instance_role_arn") or os.getenv("RUNNER_INSTANCE_ROLE_ARN")
-    if not runner_role_arn:
-        raise ValueError("Missing runner_instance_role_arn (context) or RUNNER_INSTANCE_ROLE_ARN (env var)")
+    instance_profile_name = app.node.try_get_context("runner_instance_profile_name") or os.getenv("RUNNER_INSTANCE_PROFILE_NAME")
+    if not instance_profile_name:
+        raise ValueError("Missing runner_instance_profile_name (context) or RUNNER_INSTANCE_PROFILE_NAME (env var)")
 
     GithubRunnerStack(
         app, "GithubRunnerStack",
         vpc=network.vpc,
         owner="ManojKumar-Devops",
         repo="aws-ecs-ec2-fargate-cdk-python",
-        runner_instance_role_arn=runner_role_arn,
+        instance_profile_name=instance_profile_name,
         github_pat_secret_name="github/pat",
         runner_labels="lab-runner,ec2",
         env=env,

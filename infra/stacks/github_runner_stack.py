@@ -5,7 +5,6 @@ from aws_cdk import (
     Duration,
     aws_ec2 as ec2,
     aws_autoscaling as autoscaling,
-    aws_iam as iam,
 )
 
 class GithubRunnerStack(Stack):
@@ -16,19 +15,12 @@ class GithubRunnerStack(Stack):
         vpc: ec2.IVpc,
         owner: str,
         repo: str,
-        runner_instance_role_arn: str,
+        instance_profile_name: str,  # <-- existing instance profile (MANUAL)
         github_pat_secret_name: str = "github/pat",
         runner_labels: str = "lab-runner,ec2",
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        # IMPORT role (no inline policy changes!)
-        runner_role = iam.Role.from_role_arn(
-            self, "ImportedRunnerRole",
-            role_arn=runner_instance_role_arn,
-            mutable=False,
-        )
 
         sg = ec2.SecurityGroup(self, "RunnerSg", vpc=vpc, allow_all_outbound=True)
 
@@ -44,7 +36,6 @@ class GithubRunnerStack(Stack):
             "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz",
             "tar xzf actions-runner-linux-x64.tar.gz",
 
-            # Read PAT secret using instance role credentials
             f"TOKEN_JSON=$(aws secretsmanager get-secret-value --secret-id {github_pat_secret_name} --query SecretString --output text)",
             "GITHUB_PAT=$(echo $TOKEN_JSON | jq -r .token)",
 
@@ -63,36 +54,47 @@ class GithubRunnerStack(Stack):
             "./svc.sh start",
         )
 
-        lt = ec2.LaunchTemplate(
+        # L1 Launch Template so we can set IamInstanceProfile WITHOUT creating IAM resources
+        lt = ec2.CfnLaunchTemplate(
             self, "RunnerLaunchTemplate",
-            machine_image=ec2.AmazonLinux2ImageSsmParameter(),
-            instance_type=ec2.InstanceType("t3.large"),
-            role=runner_role,
-            security_group=sg,
-            user_data=ud,
+            launch_template_data=ec2.CfnLaunchTemplate.LaunchTemplateDataProperty(
+                image_id=ec2.MachineImage.latest_amazon_linux2().get_image(self).image_id,
+                instance_type="t3.large",
+                iam_instance_profile=ec2.CfnLaunchTemplate.IamInstanceProfileProperty(
+                    name=instance_profile_name
+                ),
+                security_group_ids=[sg.security_group_id],
+                user_data=ec2.Fn.base64(ud.render()),
+            ),
         )
 
-        asg = autoscaling.AutoScalingGroup(
+        # MixedInstancesPolicy ASG using L1 launch template
+        asg = autoscaling.CfnAutoScalingGroup(
             self, "RunnerAsg",
-            vpc=vpc,
-            min_capacity=0,
-            desired_capacity=0,
-            max_capacity=5,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            mixed_instances_policy=autoscaling.MixedInstancesPolicy(
-                launch_template=lt,
-                instances_distribution=autoscaling.InstancesDistribution(
+            min_size="0",
+            max_size="5",
+            desired_capacity="0",
+            vpc_zone_identifier=vpc.select_subnets(subnet_type=ec2.SubnetType.PUBLIC).subnet_ids,
+            mixed_instances_policy=autoscaling.CfnAutoScalingGroup.MixedInstancesPolicyProperty(
+                launch_template=autoscaling.CfnAutoScalingGroup.LaunchTemplateProperty(
+                    launch_template_specification=autoscaling.CfnAutoScalingGroup.LaunchTemplateSpecificationProperty(
+                        launch_template_id=lt.ref,
+                        version=lt.attr_latest_version_number,
+                    ),
+                    overrides=[
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="t3.large"),
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="t3a.large"),
+                        autoscaling.CfnAutoScalingGroup.LaunchTemplateOverridesProperty(instance_type="m5.large"),
+                    ],
+                ),
+                instances_distribution=autoscaling.CfnAutoScalingGroup.InstancesDistributionProperty(
                     on_demand_base_capacity=1,
                     on_demand_percentage_above_base_capacity=20,
-                    spot_allocation_strategy=autoscaling.SpotAllocationStrategy.CAPACITY_OPTIMIZED,
+                    spot_allocation_strategy="capacity-optimized",
                 ),
-                launch_template_overrides=[
-                    autoscaling.LaunchTemplateOverrides(instance_type=ec2.InstanceType("t3.micro")),
-                    autoscaling.LaunchTemplateOverrides(instance_type=ec2.InstanceType("t2.micro")),
-                    autoscaling.LaunchTemplateOverrides(instance_type=ec2.InstanceType("t3.medium")),
-                ],
             ),
-            health_check=autoscaling.HealthCheck.ec2(grace=Duration.minutes(5)),
+            health_check_type="EC2",
+            health_check_grace_period=300,
         )
 
-        CfnOutput(self, "RunnerAsgName", value=asg.auto_scaling_group_name)
+        CfnOutput(self, "RunnerAsgName", value=asg.ref)
