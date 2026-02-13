@@ -19,7 +19,7 @@ network = NetworkStack(app, "NetworkStack", env=env)
 EcrStack(app, "EcrStack", env=env)
 
 deploy_runners = app.node.try_get_context("deploy_runners") == "false"
-deploy_ec2_bg = app.node.try_get_context("deploy_ec2_bg") == "true"
+deploy_ec2_bg = app.node.try_get_context("deploy_ec2_bg") == "false"
 deploy_ecs_bg = app.node.try_get_context("deploy_ecs_bg") == "true"
 
 # if deploy_runners:

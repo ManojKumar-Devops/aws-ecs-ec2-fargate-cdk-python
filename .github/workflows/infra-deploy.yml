@@ -124,13 +124,13 @@ jobs:
       #       --query "{Status:Status,StatusReason:StatusReason,ExecutionStatus:ExecutionStatus,Changes:Changes}" \
       #       --output json || true
 
-      - name: Deploy EC2 Blue/Green stack
-        working-directory: infra
-        run: |
-          aws cloudformation deploy \
-            --stack-name Ec2AlbAsgHelloStack \
-            --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
-            --capabilities CAPABILITY_NAMED_IAM
+      # - name: Deploy EC2 Blue/Green stack
+      #   working-directory: infra
+      #   run: |
+      #     aws cloudformation deploy \
+      #       --stack-name Ec2AlbAsgHelloStack \
+      #       --template-file cdk.out/Ec2AlbAsgHelloStack.template.json \
+      #       --capabilities CAPABILITY_NAMED_IAM
 
       - name: Deploy ECS Blue/Green stack
         working-directory: infra
